@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TTB Label Verification — Phase 0</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2rem; }
+    .card { max-width: 600px; padding: 1.5rem; border: 1px solid #ddd; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,.04); }
+    button { padding: 0.6rem 1rem; font-size: 1rem; }
+    pre { background: #f8f8f8; padding: 1rem; border-radius: 6px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>TTB Label Verification</h1>
+    <p>This frontend calls the backend <code>/health</code> endpoint.</p>
+    <button id="refresh">Fetch health</button>
+    <div id="output" style="margin-top:1rem; white-space: pre-wrap; font-family: Consolas, Monaco, monospace;"></div>
+  </div>
+
+  <script>
+    const output = document.getElementById('output');
+    const refresh = document.getElementById('refresh');
+
+    async function fetchHealth() {
+      output.textContent = 'Loading...';
+      try {
+        const res = await fetch('/health');
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const body = await res.json();
+        output.textContent = JSON.stringify(body, null, 2);
+      } catch (error) {
+        output.textContent = 'Error: ' + error.message;
+      }
+    }
+
+    refresh.addEventListener('click', fetchHealth);
+    fetchHealth();
+  </script>
+</body>
+</html>

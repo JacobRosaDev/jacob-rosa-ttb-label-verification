@@ -1,0 +1,17 @@
+[project]
+name = "ttb-label-verification"
+version = "0.0.1"
+description = "Phase 0 FastAPI backend with a static health-check frontend."
+readme = "README.md"
+requires-python = ">=3.12,<4.0"
+dependencies = [
+    "fastapi>=0.111.0,<1.0.0",
+    "uvicorn[standard]>=0.23.0,<1.0.0"
+]
+
+[tool.setuptools.packages.find]
+include = ["app"]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
