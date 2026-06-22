@@ -4,7 +4,7 @@ Pure data structures with no logic.
 """
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -21,14 +21,14 @@ class ApplicationData(BaseModel):
 
 
 class ExtractedLabel(BaseModel):
-    """Vision model output (same structure as ApplicationData)."""
-    brand_name: str
-    class_type: str
-    producer: str
-    country_of_origin: str
-    abv: float = Field(ge=0, le=100)
-    net_contents: str
-    government_warning: str
+    """Vision model output. Fields may be null if missing/unreadable."""
+    brand_name: Optional[str] = None
+    class_type: Optional[str] = None
+    producer: Optional[str] = None
+    country_of_origin: Optional[str] = None
+    abv: Optional[float] = Field(default=None, ge=0, le=100)
+    net_contents: Optional[str] = None
+    government_warning: Optional[str] = None
 
 
 class FieldResult(BaseModel):
