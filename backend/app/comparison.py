@@ -38,72 +38,85 @@ COUNTRY_SYNONYMS = {
 CANONICAL_WARNING = "GOVERNMENT WARNING: (1) According to the Surgeon General, women should not drink alcoholic beverages during pregnancy because of the risk of birth defects. (2) Consumption of alcoholic beverages impairs your ability to drive a car or operate machinery, and may cause health problems."
 
 
-def _normalize_whitespace(text: str) -> str:
+def _normalize_whitespace(text: str | None) -> str:
     """Collapse multiple spaces/tabs to single space, strip leading/trailing."""
+    if text is None:
+        return ""
     return " ".join(text.split()).strip()
 
 
-def _fuzzy_match(extracted: str, submitted: str, threshold: float = 85.0) -> tuple[bool, float]:
+def _normalize_text(text: str | None) -> str:
+    """Normalize optional text for comparison functions."""
+    if text is None:
+        return ""
+    return text.strip()
+
+
+def _fuzzy_match(extracted: str | None, submitted: str | None, threshold: float = 85.0) -> tuple[bool, float]:
     """
     Fuzzy string matching (case-insensitive).
     Returns (is_pass, similarity_ratio).
     """
-    norm_extracted = extracted.strip().lower()
-    norm_submitted = submitted.strip().lower()
+    norm_extracted = _normalize_text(extracted).lower()
+    norm_submitted = _normalize_text(submitted).lower()
     ratio = fuzz.ratio(norm_extracted, norm_submitted)
     return (ratio >= threshold, ratio)
 
 
-def compare_brand_name(extracted: str, submitted: str) -> FieldResult:
+def compare_brand_name(extracted: str | None, submitted: str) -> FieldResult:
     """Compare brand_name with fuzzy matching (≥85%)."""
-    is_pass, ratio = _fuzzy_match(extracted, submitted, threshold=85.0)
+    extracted_value = extracted or ""
+    is_pass, ratio = _fuzzy_match(extracted_value, submitted, threshold=85.0)
     return FieldResult(
         field_name="brand_name",
         status="PASS" if is_pass else "FAIL",
-        extracted_value=extracted,
+        extracted_value=extracted_value,
         submitted_value=submitted,
         reason=f"Fuzzy match at {ratio:.1f}%",
     )
 
 
-def compare_class_type(extracted: str, submitted: str) -> FieldResult:
+def compare_class_type(extracted: str | None, submitted: str) -> FieldResult:
     """Compare class_type with fuzzy matching (≥85%)."""
-    is_pass, ratio = _fuzzy_match(extracted, submitted, threshold=85.0)
+    extracted_value = extracted or ""
+    is_pass, ratio = _fuzzy_match(extracted_value, submitted, threshold=85.0)
     return FieldResult(
         field_name="class_type",
         status="PASS" if is_pass else "FAIL",
-        extracted_value=extracted,
+        extracted_value=extracted_value,
         submitted_value=submitted,
         reason=f"Fuzzy match at {ratio:.1f}%",
     )
 
 
-def compare_producer(extracted: str, submitted: str) -> FieldResult:
+def compare_producer(extracted: str | None, submitted: str) -> FieldResult:
     """Compare producer with fuzzy matching (≥85%)."""
-    is_pass, ratio = _fuzzy_match(extracted, submitted, threshold=85.0)
+    extracted_value = extracted or ""
+    is_pass, ratio = _fuzzy_match(extracted_value, submitted, threshold=85.0)
     return FieldResult(
         field_name="producer",
         status="PASS" if is_pass else "FAIL",
-        extracted_value=extracted,
+        extracted_value=extracted_value,
         submitted_value=submitted,
         reason=f"Fuzzy match at {ratio:.1f}%",
     )
 
 
-def compare_country_of_origin(extracted: str, submitted: str) -> FieldResult:
+def compare_country_of_origin(extracted: str | None, submitted: str) -> FieldResult:
     """
     Compare country with exact match or synonym lookup.
     Both values normalized to uppercase.
     """
-    norm_extracted = extracted.strip().upper()
-    norm_submitted = submitted.strip().upper()
+    norm_extracted = _normalize_text(extracted).upper()
+    norm_submitted = _normalize_text(submitted).upper()
 
     # Check direct match
+    extracted_value = extracted or ""
     if norm_extracted == norm_submitted:
         return FieldResult(
             field_name="country_of_origin",
             status="PASS",
-            extracted_value=extracted,
+            extracted_value=extracted_value,
             submitted_value=submitted,
             reason="Exact match",
         )
@@ -116,7 +129,7 @@ def compare_country_of_origin(extracted: str, submitted: str) -> FieldResult:
         return FieldResult(
             field_name="country_of_origin",
             status="PASS",
-            extracted_value=extracted,
+            extracted_value=extracted_value,
             submitted_value=submitted,
             reason="Synonym match",
         )
@@ -124,17 +137,19 @@ def compare_country_of_origin(extracted: str, submitted: str) -> FieldResult:
     return FieldResult(
         field_name="country_of_origin",
         status="FAIL",
-        extracted_value=extracted,
+        extracted_value=extracted_value,
         submitted_value=submitted,
         reason=f"No match (extracted: {norm_extracted}, submitted: {norm_submitted})",
     )
 
 
-def _parse_abv(text: str) -> float | None:
+def _parse_abv(text: str | None) -> float | None:
     """
     Parse ABV from various formats: "45", "45%", "45% Alc./Vol.", "45% Alcohol by Volume", etc.
     Returns float or None if unparseable.
     """
+    if text is None:
+        return None
     text = text.strip()
     # Extract numeric value (handles decimals)
     match = re.search(r"(\d+\.?\d*)", text)
@@ -175,11 +190,13 @@ def compare_abv(extracted: str, submitted: str) -> FieldResult:
     )
 
 
-def _parse_net_contents(text: str) -> float | None:
+def _parse_net_contents(text: str | None) -> float | None:
     """
     Parse net contents to mL. Supports: "750 mL", "750ml", "0.75L", "25 FL OZ", etc.
     Returns volume in mL or None if unparseable.
     """
+    if text is None:
+        return None
     text = text.strip().upper()
 
     # Extract quantity and unit (handle multi-word units like "FL OZ")
@@ -248,10 +265,11 @@ def compare_government_warning(extracted: str, submitted: str) -> FieldResult:
 
     is_pass = norm_extracted == norm_submitted
 
+    extracted_value = extracted or ""
     return FieldResult(
         field_name="government_warning",
         status="PASS" if is_pass else "FAIL",
-        extracted_value=extracted,
+        extracted_value=extracted_value,
         submitted_value=submitted,
         reason="Exact case-sensitive match after whitespace collapse" if is_pass else "Mismatch in text or case",
     )
