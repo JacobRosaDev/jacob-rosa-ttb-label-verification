@@ -11,13 +11,13 @@ from pydantic import BaseModel, Field
 
 class ApplicationData(BaseModel):
     """User-submitted ground truth for TTB label."""
-    brand_name: str = Field(..., description="Brand name (e.g., Ketel One)")
-    class_type: str = Field(..., description="Spirit class (e.g., Vodka, Whiskey)")
-    producer: str = Field(..., description="Producer/distillery name")
-    country_of_origin: str = Field(..., description="Country (e.g., USA, United States, NL)")
+    brand_name: str = Field(..., min_length=1, description="Brand name (e.g., Ketel One)")
+    class_type: str = Field(..., min_length=1, description="Spirit class (e.g., Vodka, Whiskey)")
+    producer: str = Field(..., min_length=1, description="Producer/distillery name")
+    country_of_origin: str = Field(..., min_length=1, description="Country (e.g., USA, United States, NL)")
     abv: float = Field(..., ge=0, le=100, description="Alcohol by volume (0-100)")
-    net_contents: str = Field(..., description="Bottle size (e.g., '750 mL', '1.75L')")
-    government_warning: str = Field(..., description="Exact TTB government warning text")
+    net_contents: str = Field(..., min_length=1, description="Bottle size (e.g., '750 mL', '1.75L')")
+    government_warning: str = Field(..., min_length=1, description="Exact TTB government warning text")
 
 
 class ExtractedLabel(BaseModel):

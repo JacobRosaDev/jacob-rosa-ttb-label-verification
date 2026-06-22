@@ -104,7 +104,8 @@
       margin-bottom: 1rem;
     }
 
-    .image-picker:hover {
+    .image-picker:hover,
+    .image-picker:focus-visible {
       border-color: #0f6fff;
       background: #edf3ff;
     }
@@ -339,14 +340,14 @@
         <p class="subtitle">Upload one label image, enter the seven required fields, and press Verify. The result will show whether each field passed, and if not, what was expected versus what was found.</p>
       </header>
 
-      <div id="error" class="error-card" style="display:none;"></div>
+      <div id="error" class="error-card" role="alert" aria-live="assertive" style="display:none;"></div>
 
       <form id="verification-form">
         <div class="field-group">
           <label for="image-upload">Label image</label>
-          <div id="image-picker" class="image-picker" tabindex="0">
+          <div id="image-picker" class="image-picker" role="button" aria-label="Select or drop a label image" tabindex="0">
             <strong>Select or drop one image</strong>
-            <span>JPEG, PNG, or WEBP. Under 8 MB.</span>
+            <span id="image-picker-help">JPEG, PNG, or WEBP. Under 8 MB.</span>
           </div>
           <input id="image-upload" name="image" type="file" accept="image/jpeg,image/jpg,image/png,image/webp" style="display:none;" required />
           <div id="image-preview" class="preview" style="display:none;"></div>
@@ -374,22 +375,20 @@
 
         <div class="field-group">
           <label for="abv">Alcohol by volume (ABV)</label>
-          <input id="abv" name="abv" type="number" min="0" max="100" step="0.1" placeholder="e.g. 40" autocomplete="off" required />
-          <p class="helper">Enter the ABV value as a number. Example: 40</p>
+          <input id="abv" name="abv" type="number" min="0" max="100" step="0.1" placeholder="e.g. 40" autocomplete="off" aria-describedby="abv-helper" required />
+          <p id="abv-helper" class="helper">Enter the ABV value as a number. Example: 40</p>
         </div>
 
         <div class="field-group">
           <label for="net-contents">Bottle size / volume</label>
-          <input id="net-contents" name="net_contents" type="text" placeholder="e.g. 750 mL" autocomplete="off" required />
-          <p class="helper">Use the bottle size printed on the label.</p>
+          <input id="net-contents" name="net_contents" type="text" placeholder="e.g. 750 mL" autocomplete="off" aria-describedby="net-contents-helper" required />
+          <p id="net-contents-helper" class="helper">Use the bottle size printed on the label.</p>
         </div>
 
         <div class="field-group">
           <label for="government-warning">Government warning</label>
-          <textarea id="government-warning" name="government_warning" placeholder="Paste the full warning text exactly as shown." required></textarea>
-          <p class="helper">This must match the exact warning text. Case matters.</p>
-        </div>
-
+          <textarea id="government-warning" name="government_warning" placeholder="Paste the full warning text exactly as shown." aria-describedby="government-warning-helper" required></textarea>
+          <p id="government-warning-helper" class="helper">This must match the exact warning text. Case matters.</p>
         <div class="submit-row">
           <button class="submit" type="submit">Verify label</button>
           <div id="status" class="status" aria-live="polite"></div>
@@ -397,7 +396,7 @@
       </form>
     </div>
 
-    <div id="results" class="result-card" style="display:none;"></div>
+    <div id="results" class="result-card" aria-live="polite" style="display:none;"></div>
   </main>
 
   <script>

@@ -64,6 +64,11 @@ class OpenAIVisionService(VisionService):
     Note: network calls are not used in tests.
     """
 
+    VISION_MODEL = os.environ.get("VISION_MODEL", "gpt-4o-mini-vision")
+    MAX_IMAGE_DIMENSION = int(os.environ.get("MAX_IMAGE_DIMENSION", 900))
+    JPEG_QUALITY = int(os.environ.get("JPEG_QUALITY", 80))
+    MODEL_TIMEOUT_SECONDS = int(os.environ.get("MODEL_TIMEOUT_SECONDS", 4))
+
     def __init__(self, api_key: Optional[str] = None):
         try:
             import openai
@@ -76,18 +81,18 @@ class OpenAIVisionService(VisionService):
             self.openai.api_key = self.api_key
 
     def _preprocess(self, image_bytes: bytes) -> bytes:
-        # Downscale to max 1024 and re-encode as JPEG quality=85
+        # Downscale to a reasonable max dimension and re-encode as JPEG to reduce payload
         try:
             img = Image.open(io.BytesIO(image_bytes))
             img = img.convert("RGB")
-            max_dim = 1024
+            max_dim = self.MAX_IMAGE_DIMENSION
             w, h = img.size
             if max(w, h) > max_dim:
                 scale = max_dim / max(w, h)
                 new_size = (int(w * scale), int(h * scale))
                 img = img.resize(new_size, Image.LANCZOS)
             out = io.BytesIO()
-            img.save(out, format="JPEG", quality=85)
+            img.save(out, format="JPEG", quality=self.JPEG_QUALITY)
             return out.getvalue()
         except Exception as e:
             logger.warning("Image preprocessing failed: %s", e)
@@ -107,7 +112,7 @@ class OpenAIVisionService(VisionService):
         try:
             # Use the Responses API with structured output via json_schema
             response = self.openai.responses.create(
-                model="gpt-4o-mini-vision",  # placeholder model name
+                model=self.VISION_MODEL,
                 input=[
                     {"role": "system", "content": SYSTEM_INSTRUCTIONS},
                     {"role": "user", "content": user_prompt},
@@ -115,7 +120,7 @@ class OpenAIVisionService(VisionService):
                 # Structured output via json_schema (SDK-specific)
                 json_schema=EXTRACTION_JSON_SCHEMA,
                 # Timeout control
-                timeout=10,
+                timeout=self.MODEL_TIMEOUT_SECONDS,
             )
 
             # SDK returns structured output under 'output' or 'json_schema' depending on version.

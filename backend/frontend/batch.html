@@ -30,11 +30,11 @@
       <p class="muted">Add up to 8 labels. Each entry needs an image and the seven required fields.</p>
       <div id="cards"></div>
       <div style="display:flex;gap:0.5rem;margin-top:0.75rem">
-        <button id="add">Add label</button>
-        <button id="submit">Submit batch</button>
-        <div id="spinner" style="display:none;margin-left:8px;align-self:center">Processing…</div>
+        <button id="add" type="button">Add label</button>
+        <button id="submit" type="button">Submit batch</button>
+        <div id="spinner" role="status" aria-live="polite" style="display:none;margin-left:8px;align-self:center">Processing…</div>
       </div>
-      <div id="summary" class="muted" style="margin-top:0.75rem"></div>
+      <div id="summary" class="muted" role="status" aria-live="polite" style="margin-top:0.75rem"></div>
       <div id="results" class="result-list"></div>
     </div>
   </main>

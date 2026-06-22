@@ -9,6 +9,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import ValidationError
 
 from app.comparison import verify_label
 from app.models import ApplicationData, VerificationResult
@@ -22,6 +23,7 @@ ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/webp"}
 MAX_BATCH_SIZE = int(__import__("os").environ.get("MAX_BATCH_SIZE", 8))
 BATCH_CONCURRENCY = int(__import__("os").environ.get("BATCH_CONCURRENCY", 4))
 ITEM_TIMEOUT_MS = int(__import__("os").environ.get("ITEM_TIMEOUT_MS", 3000))
+VERIFY_TIMEOUT_MS = int(__import__("os").environ.get("VERIFY_TIMEOUT_MS", 4500))
 
 app = FastAPI(title="ttb-label-verification")
 
@@ -49,6 +51,9 @@ def _format_validation_message(exc: RequestValidationError) -> str:
 
     if field == "abv":
         return "abv must be a number between 0 and 100."
+
+    if "ensure this value has at least 1 characters" in msg.lower():
+        return f"{field or 'Field'} must not be empty."
 
     if "field required" in msg.lower():
         return f"{field or 'Field'} is required."
@@ -131,8 +136,17 @@ async def verify(
     )
 
     try:
-        # Run extraction in thread if blocking
-        extracted = await asyncio.to_thread(vision_service.extract, contents)
+        # Run extraction in thread if blocking and enforce a timeout for live requests
+        extracted = await asyncio.wait_for(
+            asyncio.to_thread(vision_service.extract, contents),
+            VERIFY_TIMEOUT_MS / 1000,
+        )
+    except asyncio.TimeoutError:
+        logger.exception("Vision extraction timed out")
+        raise HTTPException(
+            status_code=504,
+            detail="Label extraction timed out. Please try a smaller, clearer image.",
+        )
     except Exception:
         logger.exception("Vision extraction failed")
         raise HTTPException(
@@ -264,21 +278,18 @@ async def verify_batch(
                     net_contents=meta["net_contents"],
                     government_warning=meta["government_warning"],
                 )
-            except Exception as e:
-                errors.append("invalid metadata values")
+            except ValidationError as exc:
+                errors.extend(
+                    f"invalid metadata {err.get('loc', [''])[-1]}: {err.get('msg', 'invalid value')}"
+                    for err in exc.errors()
+                )
                 duration = round((perf_counter() - start) * 1000, 3)
                 return BatchItemResult(index=index, filename=filename, verification=None, match=match, confidence=confidence, errors=errors, duration_ms=duration)
-
-            # Run verification (fast, CPU-bound light)
-            try:
-                result = await asyncio.to_thread(verify_label, extracted, submitted)
             except Exception:
-                logger.exception("Verification failed for batch item %s", index)
-                errors.append("verification failed")
                 duration = round((perf_counter() - start) * 1000, 3)
                 return BatchItemResult(index=index, filename=filename, verification=None, match=match, confidence=confidence, errors=errors, duration_ms=duration)
 
-            # Map result
+            result = verify_label(extracted, submitted)
             verification = result
             match = "passed" if result.overall_verdict == "APPROVED" else "needs-review"
             duration = round((perf_counter() - start) * 1000, 3)
