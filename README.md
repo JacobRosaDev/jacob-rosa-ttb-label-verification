@@ -1,8 +1,32 @@
-# TTB Label Verification — Phase 0
+# TTB Label Verification Proof-of-Concept
 
-A minimal FastAPI backend serving a static frontend and a `/health` endpoint.
+A stateless FastAPI backend with a static HTML/JS frontend for verifying TTB label fields from images.
 
-## Local run
+## Project Purpose
+
+This project extracts text from a label image, compares it against user-submitted field values, and verifies whether the label matches expected data.
+
+- **Government warning** is validated as an exact case-sensitive match after whitespace collapse.
+- **All other fields** are verified with fuzzy/normalized comparison or tolerant numeric parsing.
+- **Batch upload** is supported via a dedicated frontend page.
+- No database is used; the service is stateless and in-memory.
+
+## Live Demo
+
+- **Deployed URL:** _Replace with your live URL_
+- **Health endpoint:** `https://<live-url>/health`
+
+> Update this README with the actual deployed URL after deployment.
+
+## Local Setup
+
+### Prerequisites
+
+- Python 3.12+
+- `pip`
+- `uv` package manager (installed via `pip install uv`)
+
+### Installation
 
 From the repository root:
 
@@ -13,33 +37,128 @@ python -m venv .venv
 python -m pip install --upgrade pip
 python -m pip install uv
 uv sync
+```
+
+### Environment Variables
+
+Copy the example env file and set your API key:
+
+```powershell
+cd backend
+copy .env.example .env
+```
+
+Then edit `backend/.env` to add your real API key:
+
+```ini
+OPENAI_API_KEY=your-real-key-here
+```
+
+**Security:**
+
+- Do not commit `.env` or `.env.local`.
+- `.env.example` may contain placeholder names only.
+- API keys must live in environment variables only.
+
+## Running Locally
+
+Start the backend service:
+
+```powershell
+cd backend
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Open `http://127.0.0.1:8000` in your browser. The page fetches `/health` and displays the backend response.
+Open the frontend pages in your browser:
 
-## Render deployment
+- Single-label verification: `http://127.0.0.1:8000/`
+- Batch verification: `http://127.0.0.1:8000/batch.html`
 
-1. Push the repository to GitHub.
-2. In Render, create a new **Web Service**.
-3. Connect the repo and choose the `main` branch.
-4. Set the **Root Directory** to `backend`.
-5. Use this build command:
+## API Endpoints
+
+The backend exposes these routes:
+
+- `GET /health` — health check
+- `POST /verify` — single image verification
+- `POST /verify/batch` — batch verification
+
+### Single-label verification
+
+The frontend submits a multipart/form-data request to `/verify` with:
+
+- `image` file
+- `brand_name`
+- `class_type`
+- `producer`
+- `country_of_origin`
+- `abv`
+- `net_contents`
+- `government_warning`
+
+### Batch verification
+
+The batch frontend submits a multipart/form-data request to `/verify/batch` with:
+
+- one or more `images`
+- `metadata` JSON string containing an array of label field objects
+
+Each metadata object must include the same seven required fields.
+
+## Frontend Pages
+
+- `backend/frontend/index.html` — single label upload and verification
+- `backend/frontend/batch.html` — multiple label upload with per-item metadata
+
+## Approach
+
+1. Upload the label image(s).
+2. The backend sends the image to a vision service for structured text extraction.
+3. Extracted fields are compared against submitted data.
+4. Results are returned, including per-field pass/fail details and latency.
+
+## Verification Rules
+
+- `government_warning` requires an exact text match after whitespace normalization.
+- `brand_name`, `class_type`, and `producer` use fuzzy text matching.
+- `country_of_origin` accepts synonyms like `USA` / `United States` / `US`.
+- `abv` is parsed and compared within ±0.1%.
+- `net_contents` is normalized to milliliters and compared within ±2%.
+
+## Tools and Dependencies
+
+- FastAPI
+- Uvicorn
+- Pydantic
+- Pillow
+- RapidFuzz
+- OpenAI Python SDK
+- python-multipart
+
+## Assumptions
+
+- Uploaded images are valid label photos (JPEG/PNG/WEBP).
+- Vision API access is available via `OPENAI_API_KEY`.
+- The service is stateless and does not persist data.
+
+## Limitations
+
+- No database or persistent storage.
+- No user authentication.
+- Results are not stored across requests.
+- Performance depends on the vision model and network.
+- Poor image quality may produce incomplete or failed extraction.
+
+## Deployment
+
+If deploying to Render or Railway, use the `backend` directory as the root and run:
 
 ```bash
 pip install --upgrade pip && pip install uv && uv sync
-```
-
-6. Use this start command:
-
-```bash
 uvicorn app.main:app --host 0.0.0.0 --port $PORT
 ```
 
-7. Deploy. Render will provide a public URL such as `https://<service-name>.onrender.com`.
+## Security Notes
 
-## Notes
-
-- Do not commit `.env`; only `.env.example` is checked in.
-- `uv sync` reads `pyproject.toml` and installs dependencies in a local `.venv`.
-- The frontend is served from the same FastAPI service, so no CORS configuration is needed for Phase 0.
+- `.env` and `.env.local` must never be committed.
+- `.env.example` is safe and should contain only placeholder values.
+- All secret keys must come from environment variables only.
