@@ -45,3 +45,22 @@ class VerificationResult(BaseModel):
     overall_verdict: Literal["APPROVED", "NEEDS_REVIEW"]
     field_results: list[FieldResult]
     timestamp: datetime
+
+
+class BatchItemResult(BaseModel):
+    """Result for one item in a batch request."""
+    index: int
+    filename: str
+    verification: VerificationResult | None = None
+    match: Literal["passed", "needs-review", "error"]
+    confidence: float | None = None
+    errors: Optional[list[str]] = None
+    duration_ms: float
+
+
+class BatchResponse(BaseModel):
+    total: int
+    passed: int
+    needs_review: int
+    errors: int
+    results: list[BatchItemResult]

@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app, get_vision_service
 from app.vision_service import MockVisionService, VisionService
+import json
 
 
 @pytest.fixture(autouse=True)
@@ -151,3 +152,73 @@ def test_verify_handles_vision_service_failure_gracefully(client):
     payload = response.json()
     assert payload["error"] == "Verification failed"
     assert "unable to extract label text" in payload["message"].lower()
+
+
+def _batch_meta_items(n):
+    base = {
+        "brand_name": "Ketel One",
+        "class_type": "Vodka",
+        "producer": "Ketel Distillery",
+        "country_of_origin": "Netherlands",
+        "abv": 40.0,
+        "net_contents": "750 mL",
+        "government_warning": (
+            "GOVERNMENT WARNING: (1) According to the Surgeon General, women should not drink..."
+        ),
+    }
+    return [base.copy() for _ in range(n)]
+
+
+def test_verify_batch_all_pass(client):
+    # three clear images should all pass with the default MockVisionService
+    files = [
+        ("images", (f"label{i}.png", io.BytesIO(b"PNGDATA"), "image/png"))
+        for i in range(3)
+    ]
+    meta = json.dumps(_batch_meta_items(3))
+    response = client.post("/verify/batch", files=files, data={"metadata": meta})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 3
+    assert payload["passed"] == 3
+    assert payload["needs_review"] == 0
+    assert payload["errors"] == 0
+    assert len(payload["results"]) == 3
+
+
+class PerItemVisionService(VisionService):
+    def extract(self, image_bytes: bytes):
+        # simulate failure for specific payload
+        if image_bytes == b"BAD":
+            raise RuntimeError("bad image")
+        return MockVisionService(scenario="clear").extract(image_bytes)
+
+
+def test_verify_batch_one_error_item(client):
+    # Override vision service to fail on one specific image
+    app.dependency_overrides[get_vision_service] = lambda: PerItemVisionService()
+    files = [
+        ("images", ("label0.png", io.BytesIO(b"PNGDATA"), "image/png")),
+        ("images", ("label1.png", io.BytesIO(b"BAD"), "image/png")),
+        ("images", ("label2.png", io.BytesIO(b"PNGDATA"), "image/png")),
+    ]
+    meta = json.dumps(_batch_meta_items(3))
+    response = client.post("/verify/batch", files=files, data={"metadata": meta})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 3
+    assert payload["errors"] == 1
+    assert payload["passed"] == 2
+    assert payload["needs_review"] in (0, 1)
+    # ensure the middle item has an error reported
+    assert any(r.get("filename") == "label1.png" and r.get("match") == "error" for r in payload["results"])
+
+
+def test_verify_batch_exceeds_max_size(client):
+    # default MAX_BATCH_SIZE is 8; create 9 metadata entries
+    files = [("images", (f"label{i}.png", io.BytesIO(b"PNGDATA"), "image/png")) for i in range(9)]
+    meta = json.dumps(_batch_meta_items(9))
+    response = client.post("/verify/batch", files=files, data={"metadata": meta})
+    assert response.status_code == 400
