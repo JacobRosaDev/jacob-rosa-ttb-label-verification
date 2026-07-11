@@ -25,7 +25,8 @@ class TestBrandNameFuzzy:
     def test_exact_match(self):
         result = compare_brand_name("Ketel One", "Ketel One")
         assert result.status == "PASS"
-        assert result.field_name == "brand_name"
+        assert result.field == "brand_name"
+        assert result.match_type == "fuzzy"
 
     def test_case_only_diff(self):
         """Case-only difference should pass."""
@@ -270,6 +271,7 @@ class TestGovernmentWarning:
         """Exact canonical warning match."""
         result = compare_government_warning(CANONICAL_WARNING, CANONICAL_WARNING)
         assert result.status == "PASS"
+        assert result.match_type == "exact"
         assert "case-sensitive" in result.reason
 
     def test_extra_internal_spaces_collapse(self):
@@ -338,8 +340,8 @@ class TestGovernmentWarning:
         misread = "CAUTION: This product contains alcohol."
         result = compare_government_warning(misread, CANONICAL_WARNING)
         assert result.status == "FAIL"
-        assert result.extracted_value == misread
-        assert result.submitted_value == CANONICAL_WARNING
+        assert result.found == misread
+        assert result.expected == CANONICAL_WARNING
 
 
 class TestVerifyLabelIntegration:

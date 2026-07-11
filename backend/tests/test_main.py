@@ -46,7 +46,7 @@ def test_verify_returns_approved_with_clear_mock(client):
     payload = response.json()
     assert payload["overall_verdict"] == "APPROVED"
     assert isinstance(payload["field_results"], list)
-    assert payload["field_results"][0]["field_name"] == "brand_name"
+    assert payload["field_results"][0]["field"] == "brand_name"
     assert payload["latency_ms"] >= 0
 
 

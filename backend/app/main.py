@@ -28,10 +28,6 @@ VERIFY_TIMEOUT_MS = int(__import__("os").environ.get("VERIFY_TIMEOUT_MS", 4500))
 app = FastAPI(title="ttb-label-verification")
 
 
-class VerificationResponse(VerificationResult):
-    latency_ms: float
-
-
 def get_vision_service() -> VisionService:
     return OpenAIVisionService()
 
@@ -96,7 +92,7 @@ def health():
     return {"status": "ok", "ts": datetime.now(timezone.utc).isoformat()}
 
 
-@app.post("/verify", response_model=VerificationResponse)
+@app.post("/verify", response_model=VerificationResult)
 async def verify(
     image: UploadFile = File(...),
     brand_name: str = Form(...),
@@ -163,9 +159,7 @@ async def verify(
         result.overall_verdict,
     )
 
-    payload = result.model_dump()
-    payload["latency_ms"] = latency_ms
-    return payload
+    return result.model_copy(update={"latency_ms": latency_ms})
 
 
 @app.post("/verify/batch", response_model=BatchResponse)
@@ -290,9 +284,9 @@ async def verify_batch(
                 return BatchItemResult(index=index, filename=filename, verification=None, match=match, confidence=confidence, errors=errors, duration_ms=duration)
 
             result = verify_label(extracted, submitted)
-            verification = result
             match = "passed" if result.overall_verdict == "APPROVED" else "needs-review"
             duration = round((perf_counter() - start) * 1000, 3)
+            verification = result.model_copy(update={"latency_ms": duration})
             return BatchItemResult(index=index, filename=filename, verification=verification, match=match, confidence=confidence, errors=errors or None, duration_ms=duration)
 
     # Spawn tasks

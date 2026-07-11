@@ -68,10 +68,11 @@ def compare_brand_name(extracted: str | None, submitted: str) -> FieldResult:
     extracted_value = extracted or ""
     is_pass, ratio = _fuzzy_match(extracted_value, submitted, threshold=85.0)
     return FieldResult(
-        field_name="brand_name",
+        field="brand_name",
+        match_type="fuzzy",
+        expected=submitted,
+        found=extracted_value,
         status="PASS" if is_pass else "FAIL",
-        extracted_value=extracted_value,
-        submitted_value=submitted,
         reason=f"Fuzzy match at {ratio:.1f}%",
     )
 
@@ -81,10 +82,11 @@ def compare_class_type(extracted: str | None, submitted: str) -> FieldResult:
     extracted_value = extracted or ""
     is_pass, ratio = _fuzzy_match(extracted_value, submitted, threshold=85.0)
     return FieldResult(
-        field_name="class_type",
+        field="class_type",
+        match_type="fuzzy",
+        expected=submitted,
+        found=extracted_value,
         status="PASS" if is_pass else "FAIL",
-        extracted_value=extracted_value,
-        submitted_value=submitted,
         reason=f"Fuzzy match at {ratio:.1f}%",
     )
 
@@ -94,10 +96,11 @@ def compare_producer(extracted: str | None, submitted: str) -> FieldResult:
     extracted_value = extracted or ""
     is_pass, ratio = _fuzzy_match(extracted_value, submitted, threshold=85.0)
     return FieldResult(
-        field_name="producer",
+        field="producer",
+        match_type="fuzzy",
+        expected=submitted,
+        found=extracted_value,
         status="PASS" if is_pass else "FAIL",
-        extracted_value=extracted_value,
-        submitted_value=submitted,
         reason=f"Fuzzy match at {ratio:.1f}%",
     )
 
@@ -114,10 +117,11 @@ def compare_country_of_origin(extracted: str | None, submitted: str) -> FieldRes
     extracted_value = extracted or ""
     if norm_extracted == norm_submitted:
         return FieldResult(
-            field_name="country_of_origin",
+            field="country_of_origin",
+            match_type="exact",
+            expected=submitted,
+            found=extracted_value,
             status="PASS",
-            extracted_value=extracted_value,
-            submitted_value=submitted,
             reason="Exact match",
         )
 
@@ -127,18 +131,20 @@ def compare_country_of_origin(extracted: str | None, submitted: str) -> FieldRes
 
     if norm_submitted in extracted_synonyms or norm_extracted in submitted_synonyms:
         return FieldResult(
-            field_name="country_of_origin",
+            field="country_of_origin",
+            match_type="synonym",
+            expected=submitted,
+            found=extracted_value,
             status="PASS",
-            extracted_value=extracted_value,
-            submitted_value=submitted,
             reason="Synonym match",
         )
 
     return FieldResult(
-        field_name="country_of_origin",
+        field="country_of_origin",
+        match_type="synonym",
+        expected=submitted,
+        found=extracted_value,
         status="FAIL",
-        extracted_value=extracted_value,
-        submitted_value=submitted,
         reason=f"No match (extracted: {norm_extracted}, submitted: {norm_submitted})",
     )
 
@@ -170,10 +176,11 @@ def compare_abv(extracted: str, submitted: str) -> FieldResult:
 
     if extracted_abv is None or submitted_abv is None:
         return FieldResult(
-            field_name="abv",
+            field="abv",
+            match_type="numeric",
+            expected=submitted,
+            found=extracted,
             status="FAIL",
-            extracted_value=extracted,
-            submitted_value=submitted,
             reason=f"Unable to parse ABV (extracted: {extracted_abv}, submitted: {submitted_abv})",
         )
 
@@ -182,10 +189,11 @@ def compare_abv(extracted: str, submitted: str) -> FieldResult:
 
     is_pass = diff <= tolerance
     return FieldResult(
-        field_name="abv",
+        field="abv",
+        match_type="numeric",
+        expected=submitted,
+        found=extracted,
         status="PASS" if is_pass else "FAIL",
-        extracted_value=extracted,
-        submitted_value=submitted,
         reason=f"Difference: {diff:.2f}% (tolerance: ±{tolerance}%)",
     )
 
@@ -231,10 +239,11 @@ def compare_net_contents(extracted: str, submitted: str) -> FieldResult:
 
     if extracted_ml is None or submitted_ml is None:
         return FieldResult(
-            field_name="net_contents",
+            field="net_contents",
+            match_type="unit",
+            expected=submitted,
+            found=extracted,
             status="FAIL",
-            extracted_value=extracted,
-            submitted_value=submitted,
             reason=f"Unable to parse (extracted: {extracted_ml} mL, submitted: {submitted_ml} mL)",
         )
 
@@ -246,10 +255,11 @@ def compare_net_contents(extracted: str, submitted: str) -> FieldResult:
     diff_pct = (diff / submitted_ml * 100.0) if submitted_ml > 0 else 0.0
 
     return FieldResult(
-        field_name="net_contents",
+        field="net_contents",
+        match_type="unit",
+        expected=submitted,
+        found=extracted,
         status="PASS" if is_pass else "FAIL",
-        extracted_value=extracted,
-        submitted_value=submitted,
         reason=f"Difference: {diff_pct:.2f}% (tolerance: ±{tolerance_pct}%)",
     )
 
@@ -267,15 +277,16 @@ def compare_government_warning(extracted: str, submitted: str) -> FieldResult:
 
     extracted_value = extracted or ""
     return FieldResult(
-        field_name="government_warning",
+        field="government_warning",
+        match_type="exact",
+        expected=submitted,
+        found=extracted_value,
         status="PASS" if is_pass else "FAIL",
-        extracted_value=extracted_value,
-        submitted_value=submitted,
         reason="Exact case-sensitive match after whitespace collapse" if is_pass else "Mismatch in text or case",
     )
 
 
-def verify_label(extracted: ExtractedLabel, submitted: ApplicationData) -> VerificationResult:
+def verify_label(extracted: ExtractedLabel, submitted: ApplicationData, latency_ms: float = 0.0) -> VerificationResult:
     """
     Compare extracted label against submitted application data.
     Returns VerificationResult with individual field results.
@@ -298,4 +309,5 @@ def verify_label(extracted: ExtractedLabel, submitted: ApplicationData) -> Verif
         overall_verdict=overall_verdict,
         field_results=field_results,
         timestamp=datetime.now(timezone.utc),
+        latency_ms=latency_ms,
     )
