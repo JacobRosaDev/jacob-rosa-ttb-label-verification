@@ -18,20 +18,20 @@ from app.models import (
 
 T = TypeVar("T")
 
-# Country synonym map (normalized to uppercase)
+# Country canonicalization map (normalized to uppercase)
 COUNTRY_SYNONYMS = {
-    "USA": {"USA", "UNITED STATES", "US"},
-    "UNITED STATES": {"USA", "UNITED STATES", "US"},
-    "US": {"USA", "UNITED STATES", "US"},
-    "GB": {"GB", "UNITED KINGDOM", "UK"},
-    "UNITED KINGDOM": {"GB", "UNITED KINGDOM", "UK"},
-    "UK": {"GB", "UNITED KINGDOM", "UK"},
-    "NL": {"NL", "NETHERLANDS"},
-    "NETHERLANDS": {"NL", "NETHERLANDS"},
-    "FR": {"FR", "FRANCE"},
-    "FRANCE": {"FR", "FRANCE"},
-    "DE": {"DE", "GERMANY"},
-    "GERMANY": {"DE", "GERMANY"},
+    "USA": "USA",
+    "UNITED STATES": "USA",
+    "US": "USA",
+    "GB": "UNITED KINGDOM",
+    "UNITED KINGDOM": "UNITED KINGDOM",
+    "UK": "UNITED KINGDOM",
+    "NL": "NETHERLANDS",
+    "NETHERLANDS": "NETHERLANDS",
+    "FR": "FRANCE",
+    "FRANCE": "FRANCE",
+    "DE": "GERMANY",
+    "GERMANY": "GERMANY",
 }
 
 # Canonical TTB government warning
@@ -52,21 +52,21 @@ def _normalize_text(text: str | None) -> str:
     return text.strip()
 
 
-def _fuzzy_match(extracted: str | None, submitted: str | None, threshold: float = 85.0) -> tuple[bool, float]:
+def _fuzzy_match(extracted: str | None, submitted: str | None, threshold: float = 90.0) -> tuple[bool, float]:
     """
     Fuzzy string matching (case-insensitive).
     Returns (is_pass, similarity_ratio).
     """
     norm_extracted = _normalize_text(extracted).lower()
     norm_submitted = _normalize_text(submitted).lower()
-    ratio = fuzz.ratio(norm_extracted, norm_submitted)
+    ratio = fuzz.token_sort_ratio(norm_extracted, norm_submitted)
     return (ratio >= threshold, ratio)
 
 
 def compare_brand_name(extracted: str | None, submitted: str) -> FieldResult:
-    """Compare brand_name with fuzzy matching (≥85%)."""
+    """Compare brand_name with fuzzy matching (>=90%)."""
     extracted_value = extracted or ""
-    is_pass, ratio = _fuzzy_match(extracted_value, submitted, threshold=85.0)
+    is_pass, ratio = _fuzzy_match(extracted_value, submitted, threshold=90.0)
     return FieldResult(
         field="brand_name",
         match_type="fuzzy",
@@ -78,9 +78,9 @@ def compare_brand_name(extracted: str | None, submitted: str) -> FieldResult:
 
 
 def compare_class_type(extracted: str | None, submitted: str) -> FieldResult:
-    """Compare class_type with fuzzy matching (≥85%)."""
+    """Compare class_type with fuzzy matching (>=90%)."""
     extracted_value = extracted or ""
-    is_pass, ratio = _fuzzy_match(extracted_value, submitted, threshold=85.0)
+    is_pass, ratio = _fuzzy_match(extracted_value, submitted, threshold=90.0)
     return FieldResult(
         field="class_type",
         match_type="fuzzy",
@@ -92,9 +92,9 @@ def compare_class_type(extracted: str | None, submitted: str) -> FieldResult:
 
 
 def compare_producer(extracted: str | None, submitted: str) -> FieldResult:
-    """Compare producer with fuzzy matching (≥85%)."""
+    """Compare producer with fuzzy matching (>=90%)."""
     extracted_value = extracted or ""
-    is_pass, ratio = _fuzzy_match(extracted_value, submitted, threshold=85.0)
+    is_pass, ratio = _fuzzy_match(extracted_value, submitted, threshold=90.0)
     return FieldResult(
         field="producer",
         match_type="fuzzy",
@@ -125,11 +125,11 @@ def compare_country_of_origin(extracted: str | None, submitted: str) -> FieldRes
             reason="Exact match",
         )
 
-    # Check synonym match
-    extracted_synonyms = COUNTRY_SYNONYMS.get(norm_extracted, {norm_extracted})
-    submitted_synonyms = COUNTRY_SYNONYMS.get(norm_submitted, {norm_submitted})
+    # Check canonicalized synonym match
+    canonical_extracted = COUNTRY_SYNONYMS.get(norm_extracted, norm_extracted)
+    canonical_submitted = COUNTRY_SYNONYMS.get(norm_submitted, norm_submitted)
 
-    if norm_submitted in extracted_synonyms or norm_extracted in submitted_synonyms:
+    if canonical_extracted == canonical_submitted:
         return FieldResult(
             field="country_of_origin",
             match_type="synonym",
@@ -149,6 +149,17 @@ def compare_country_of_origin(extracted: str | None, submitted: str) -> FieldRes
     )
 
 
+def _valid_abv(value: float) -> float | None:
+    return value if 0.0 <= value <= 100.0 else None
+
+
+def _to_float(value: str) -> float | None:
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
 def _parse_abv(text: str | None) -> float | None:
     """
     Parse ABV from various formats: "45", "45%", "45% Alc./Vol.", "45% Alcohol by Volume", etc.
@@ -157,29 +168,67 @@ def _parse_abv(text: str | None) -> float | None:
     if text is None:
         return None
     text = text.strip()
-    # Extract numeric value (handles decimals)
-    match = re.search(r"(\d+\.?\d*)", text)
-    if match:
-        try:
-            return float(match.group(1))
-        except ValueError:
-            return None
+    if not text:
+        return None
+
+    number = r"(-?\d+(?:\.\d+)?)"
+    upper_text = text.upper()
+
+    context_patterns = [
+        rf"{number}\s*%",
+        rf"{number}\s*PERCENT\b",
+        rf"{number}\s*(?:%?\s*)ABV\b",
+        rf"\bABV\b\s*{number}",
+        rf"{number}\s*%?\s*ALC\.?\s*/\s*VOL\.?",
+        rf"\bALC\.?\s*/\s*VOL\.?\s*{number}",
+        rf"{number}\s*%?\s*ALCOHOL\s+BY\s+VOLUME\b",
+        rf"\bALCOHOL\s+BY\s+VOLUME\b\s*{number}",
+    ]
+    for pattern in context_patterns:
+        match = re.search(pattern, upper_text)
+        if match:
+            value = _to_float(match.group(1))
+            return _valid_abv(value) if value is not None else None
+
+    proof_match = re.search(rf"{number}\s*PROOF\b", upper_text)
+    if proof_match:
+        proof = _to_float(proof_match.group(1))
+        return _valid_abv(proof / 2.0) if proof is not None else None
+
+    bare_match = re.fullmatch(number, upper_text)
+    if bare_match:
+        value = _to_float(bare_match.group(1))
+        return _valid_abv(value) if value is not None else None
+
     return None
 
 
-def compare_abv(extracted: str, submitted: str) -> FieldResult:
+def compare_abv(extracted: str | float | None, submitted: str | float) -> FieldResult:
     """
-    Compare ABV with numeric parsing and ±0.1% tolerance.
+    Compare ABV with numeric parsing and +/-0.1% tolerance.
     """
-    extracted_abv = _parse_abv(extracted)
-    submitted_abv = _parse_abv(submitted)
+    submitted_text = str(submitted)
+
+    if extracted is None:
+        return FieldResult(
+            field="abv",
+            match_type="numeric",
+            expected=submitted_text,
+            found="",
+            status="FAIL",
+            reason="ABV not extracted",
+        )
+
+    extracted_text = str(extracted)
+    extracted_abv = _parse_abv(extracted_text)
+    submitted_abv = _parse_abv(submitted_text)
 
     if extracted_abv is None or submitted_abv is None:
         return FieldResult(
             field="abv",
             match_type="numeric",
-            expected=submitted,
-            found=extracted,
+            expected=submitted_text,
+            found=extracted_text,
             status="FAIL",
             reason=f"Unable to parse ABV (extracted: {extracted_abv}, submitted: {submitted_abv})",
         )
@@ -191,10 +240,10 @@ def compare_abv(extracted: str, submitted: str) -> FieldResult:
     return FieldResult(
         field="abv",
         match_type="numeric",
-        expected=submitted,
-        found=extracted,
+        expected=submitted_text,
+        found=extracted_text,
         status="PASS" if is_pass else "FAIL",
-        reason=f"Difference: {diff:.2f}% (tolerance: ±{tolerance}%)",
+        reason=f"Difference: {diff:.2f}% (tolerance: +/-{tolerance}%)",
     )
 
 
@@ -232,7 +281,7 @@ def _parse_net_contents(text: str | None) -> float | None:
 
 def compare_net_contents(extracted: str, submitted: str) -> FieldResult:
     """
-    Compare net contents: normalize both to mL, allow ±2% tolerance.
+    Compare net contents: normalize both to mL, allow +/-1 mL tolerance.
     """
     extracted_ml = _parse_net_contents(extracted)
     submitted_ml = _parse_net_contents(submitted)
@@ -247,12 +296,9 @@ def compare_net_contents(extracted: str, submitted: str) -> FieldResult:
             reason=f"Unable to parse (extracted: {extracted_ml} mL, submitted: {submitted_ml} mL)",
         )
 
-    tolerance_pct = 2.0
-    tolerance_ml = submitted_ml * (tolerance_pct / 100.0)
     diff = abs(extracted_ml - submitted_ml)
 
-    is_pass = diff <= tolerance_ml
-    diff_pct = (diff / submitted_ml * 100.0) if submitted_ml > 0 else 0.0
+    is_pass = diff <= 1.0
 
     return FieldResult(
         field="net_contents",
@@ -260,14 +306,14 @@ def compare_net_contents(extracted: str, submitted: str) -> FieldResult:
         expected=submitted,
         found=extracted,
         status="PASS" if is_pass else "FAIL",
-        reason=f"Difference: {diff_pct:.2f}% (tolerance: ±{tolerance_pct}%)",
+        reason=f"Difference: {diff:.2f} mL (tolerance: +/-1.0 mL)",
     )
 
 
 def compare_government_warning(extracted: str, submitted: str) -> FieldResult:
     """
     Compare government warning: exact case-sensitive match after whitespace collapse.
-    No fuzzy matching — exact only.
+    No fuzzy matching - exact only.
     """
     # Normalize whitespace (collapse multiple spaces, trim)
     norm_extracted = _normalize_whitespace(extracted)
@@ -296,7 +342,7 @@ def verify_label(extracted: ExtractedLabel, submitted: ApplicationData, latency_
         compare_class_type(extracted.class_type, submitted.class_type),
         compare_producer(extracted.producer, submitted.producer),
         compare_country_of_origin(extracted.country_of_origin, submitted.country_of_origin),
-        compare_abv(str(extracted.abv), str(submitted.abv)),
+        compare_abv(extracted.abv, submitted.abv),
         compare_net_contents(extracted.net_contents, submitted.net_contents),
         compare_government_warning(extracted.government_warning, submitted.government_warning),
     ]
@@ -311,3 +357,4 @@ def verify_label(extracted: ExtractedLabel, submitted: ApplicationData, latency_
         timestamp=datetime.now(timezone.utc),
         latency_ms=latency_ms,
     )
+

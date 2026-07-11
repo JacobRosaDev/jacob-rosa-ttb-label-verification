@@ -7,6 +7,7 @@ import pytest
 
 from app.comparison import (
     CANONICAL_WARNING,
+    _parse_abv,
     compare_abv,
     compare_brand_name,
     compare_class_type,
@@ -20,7 +21,7 @@ from app.models import ApplicationData, ExtractedLabel, FieldResult
 
 
 class TestBrandNameFuzzy:
-    """Brand name fuzzy matching tests (≥85%)."""
+    """Brand name fuzzy matching tests (>=90%)."""
 
     def test_exact_match(self):
         result = compare_brand_name("Ketel One", "Ketel One")
@@ -34,13 +35,13 @@ class TestBrandNameFuzzy:
         assert result.status == "PASS"
 
     def test_single_typo(self):
-        """Single character typo should pass at ≥85%."""
+        """Single character typo should pass at >=90%."""
         # "Whiskey" vs "Whisky" is high similarity
         result = compare_brand_name("Whiskey", "Whisky")
         assert result.status == "PASS"
 
     def test_multiple_typos_high_similarity(self):
-        """Multiple typos but still ≥85% similarity."""
+        """Multiple typos but still >=90% similarity."""
         result = compare_brand_name("Absolut Vodka", "Absolut Vdka")  # Minor typo, high similarity
         assert result.status == "PASS"
 
@@ -50,19 +51,31 @@ class TestBrandNameFuzzy:
         assert result.status == "FAIL"
 
     def test_threshold_just_above(self):
-        """Test just above 85% threshold (should pass)."""
+        """Test just above 90% threshold (should pass)."""
         # High similarity strings
         result = compare_brand_name("Ketel One Premium", "Ketel One Premi")
         assert result.status == "PASS"
 
     def test_threshold_just_below(self):
-        """Test below 85% threshold (should fail)."""
+        """Test below 90% threshold (should fail)."""
         result = compare_brand_name("Ketel One Vodka", "Rum Light Premium")
         assert result.status == "FAIL"
 
+    def test_word_order_token_sort_match(self):
+        result = compare_brand_name("ACME RESERVE", "RESERVE ACME")
+        assert result.status == "PASS"
+        assert result.match_type == "fuzzy"
+
+    def test_ninety_threshold_passes_and_below_fails(self):
+        passing = compare_brand_name("abcdefghij", "abcdefghi")
+        failing = compare_brand_name("abcdefghij", "abcdefgh")
+
+        assert passing.status == "PASS"
+        assert failing.status == "FAIL"
+
 
 class TestClassTypeFuzzy:
-    """Class type fuzzy matching tests (≥85%)."""
+    """Class type fuzzy matching tests (>=90%)."""
 
     def test_exact_match(self):
         result = compare_class_type("Vodka", "Vodka")
@@ -82,7 +95,7 @@ class TestClassTypeFuzzy:
 
 
 class TestProducerFuzzy:
-    """Producer fuzzy matching tests (≥85%)."""
+    """Producer fuzzy matching tests (>=90%)."""
 
     def test_exact_match(self):
         result = compare_producer("Diageo", "Diageo")
@@ -93,9 +106,9 @@ class TestProducerFuzzy:
         assert result.status == "PASS"
 
     def test_minor_typo(self):
-        result = compare_producer("Diageo", "Diageo Inc.")
-        # This should be high similarity
-        pass
+        result = compare_producer("Distillery", "Distilery")
+        assert result.status == "PASS"
+        assert result.match_type == "fuzzy"
 
 
 class TestCountryOfOrigin:
@@ -119,6 +132,12 @@ class TestCountryOfOrigin:
         """US vs USA should pass."""
         result = compare_country_of_origin("US", "USA")
         assert result.status == "PASS"
+        assert result.match_type == "synonym"
+
+    def test_flat_country_canonicalization(self):
+        result = compare_country_of_origin("United States", "US")
+        assert result.status == "PASS"
+        assert result.match_type == "synonym"
 
     def test_gb_to_uk_synonym(self):
         """GB vs UK should pass."""
@@ -147,7 +166,37 @@ class TestCountryOfOrigin:
 
 
 class TestABVComparison:
-    """ABV comparison with parsing and ±0.1% tolerance."""
+    """ABV comparison with parsing and +/-0.1% tolerance."""
+
+    def test_proof_parses_to_half_abv(self):
+        assert _parse_abv("90 Proof") == 45.0
+        result = compare_abv("90 Proof", "45.0")
+        assert result.status == "PASS"
+
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("45%", 45.0),
+            ("45 ABV", 45.0),
+            ("45 percent", 45.0),
+            ("45% Alc./Vol.", 45.0),
+        ],
+    )
+    def test_contextual_abv_formats(self, text, expected):
+        assert _parse_abv(text) == expected
+
+    def test_rejects_unrelated_number_text(self):
+        assert _parse_abv("Batch 2021 lot 7") is None
+        result = compare_abv("Batch 2021 lot 7", "40.0")
+        assert result.status == "FAIL"
+
+    @pytest.mark.parametrize("text", ["0", "40", "100"])
+    def test_valid_bare_number_inputs(self, text):
+        assert _parse_abv(text) == float(text)
+
+    @pytest.mark.parametrize("text", ["-1", "101", "40 50", "Batch 7"])
+    def test_invalid_bare_number_inputs(self, text):
+        assert _parse_abv(text) is None
 
     def test_exact_match(self):
         result = compare_abv("40.0", "40.0")
@@ -203,9 +252,16 @@ class TestABVComparison:
         result = compare_abv("40.0", "invalid")
         assert result.status == "FAIL"
 
+    def test_missing_extracted_abv(self):
+        result = compare_abv(None, "40.0")
+        assert result.status == "FAIL"
+        assert result.match_type == "numeric"
+        assert result.found == ""
+        assert result.reason == "ABV not extracted"
+
 
 class TestNetContents:
-    """Net contents comparison with unit normalization (±2% tolerance)."""
+    """Net contents comparison with unit normalization (+/-1 mL tolerance)."""
 
     def test_exact_match(self):
         result = compare_net_contents("750 mL", "750 mL")
@@ -222,23 +278,23 @@ class TestNetContents:
         assert result.status == "PASS"
 
     def test_within_tolerance_lower(self):
-        """750 vs 735 (within ±2%)."""
-        result = compare_net_contents("735 mL", "750 mL")
+        """750 vs 749 (within 1 mL)."""
+        result = compare_net_contents("749 mL", "750 mL")
         assert result.status == "PASS"
 
     def test_within_tolerance_upper(self):
-        """750 vs 765 (within ±2%)."""
-        result = compare_net_contents("765 mL", "750 mL")
+        """750 vs 751 (within 1 mL)."""
+        result = compare_net_contents("751 mL", "750 mL")
         assert result.status == "PASS"
 
     def test_at_tolerance_boundary(self):
-        """750 mL vs 765 mL (exactly 2%)."""
-        result = compare_net_contents("765 mL", "750 mL")
+        """750 mL vs 751 mL (exactly 1 mL)."""
+        result = compare_net_contents("751 mL", "750 mL")
         assert result.status == "PASS"
 
     def test_just_over_tolerance(self):
-        """750 mL vs 766 mL (just over 2%)."""
-        result = compare_net_contents("766 mL", "750 mL")
+        """750 mL vs 751.1 mL (just over 1 mL)."""
+        result = compare_net_contents("751.1 mL", "750 mL")
         assert result.status == "FAIL"
 
     def test_large_difference(self):
@@ -247,9 +303,9 @@ class TestNetContents:
         assert result.status == "FAIL"
 
     def test_fl_oz_conversion(self):
-        """25.5 FL OZ vs 750 mL (should normalize correctly)."""
-        # 25.5 FL OZ ≈ 754 mL (within 2% of 750 mL)
-        result = compare_net_contents("25.5 FL OZ", "750 mL")
+        """25.36 FL OZ vs 750 mL (should normalize correctly)."""
+        # 25.36 FL OZ is within 1 mL of 750 mL
+        result = compare_net_contents("25.36 FL OZ", "750 mL")
         # Check that it parses correctly and is within tolerance
         assert result.status == "PASS", f"Expected PASS but got {result.status}. Reason: {result.reason}"
 
@@ -340,6 +396,7 @@ class TestGovernmentWarning:
         misread = "CAUTION: This product contains alcohol."
         result = compare_government_warning(misread, CANONICAL_WARNING)
         assert result.status == "FAIL"
+        assert result.match_type == "exact"
         assert result.found == misread
         assert result.expected == CANONICAL_WARNING
 
@@ -426,8 +483,8 @@ class TestVerifyLabelIntegration:
             class_type="Vodka",
             producer="diageo",  # Case variation
             country_of_origin="united states",  # Synonym
-            abv=40.05,  # Within ±0.1%
-            net_contents="765 mL",  # Within ±2%
+            abv=40.05,  # Within +/-0.1%
+            net_contents="751 mL",  # Within 1 mL
             government_warning=CANONICAL_WARNING,
         )
         submitted = ApplicationData(
@@ -466,6 +523,34 @@ class TestVerifyLabelIntegration:
         result_abv = compare_abv("45%", "45% Alc./Vol. (90 Proof)")
         assert result_abv.status == "PASS"
 
+    def test_missing_extracted_abv_needs_review(self):
+        extracted = ExtractedLabel(
+            brand_name="Ketel One",
+            class_type="Vodka",
+            producer="Diageo",
+            country_of_origin="USA",
+            abv=None,
+            net_contents="750 mL",
+            government_warning=CANONICAL_WARNING,
+        )
+        submitted = ApplicationData(
+            brand_name="Ketel One",
+            class_type="Vodka",
+            producer="Diageo",
+            country_of_origin="USA",
+            abv=40.0,
+            net_contents="750 mL",
+            government_warning=CANONICAL_WARNING,
+        )
+
+        result = verify_label(extracted, submitted)
+        abv_result = next(field for field in result.field_results if field.field == "abv")
+
+        assert result.overall_verdict == "NEEDS_REVIEW"
+        assert abv_result.status == "FAIL"
+        assert abv_result.reason == "ABV not extracted"
+        assert abv_result.found == ""
+
 
 class TestEdgeCases:
     """Edge case tests."""
@@ -493,3 +578,4 @@ class TestEdgeCases:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
