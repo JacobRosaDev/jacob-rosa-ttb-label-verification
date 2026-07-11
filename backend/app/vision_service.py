@@ -7,14 +7,27 @@ import json
 import logging
 import os
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Any, Optional
 
 from PIL import Image
+from pydantic import ValidationError
 
 from .models import ExtractedLabel
 from .extraction_prompt import EXTRACTION_JSON_SCHEMA, SYSTEM_INSTRUCTIONS, build_user_prompt
 
 logger = logging.getLogger(__name__)
+
+
+class VisionTimeoutError(RuntimeError):
+    """Vision provider did not return a result before the timeout."""
+
+
+class VisionInvalidResponseError(RuntimeError):
+    """Vision provider returned malformed or schema-invalid output."""
+
+
+class VisionAuthError(RuntimeError):
+    """Vision provider rejected authentication or authorization."""
 
 
 class VisionService(ABC):
@@ -98,13 +111,69 @@ class OpenAIVisionService(VisionService):
             logger.warning("Image preprocessing failed: %s", e)
             return image_bytes
 
+    def _parse_response_payload(self, response: Any) -> dict[str, Any]:
+        parsed = None
+
+        if hasattr(response, "output"):
+            for item in response.output:
+                if getattr(item, "type", None) == "json_schema":
+                    parsed = getattr(item, "data", None)
+                    break
+                content = getattr(item, "content", None)
+                if content:
+                    for part in content:
+                        text = getattr(part, "text", None)
+                        if text:
+                            parsed = json.loads(text)
+                            break
+                if parsed is not None:
+                    break
+
+        if parsed is None and hasattr(response, "output_parsed"):
+            parsed = response.output_parsed
+
+        if parsed is None and hasattr(response, "json"):
+            parsed = response.json()
+
+        if parsed is None:
+            text = getattr(response, "text", None) or getattr(response, "output_text", None)
+            if text:
+                parsed = json.loads(text)
+
+        if not isinstance(parsed, dict):
+            raise VisionInvalidResponseError("Vision model returned no structured JSON object.")
+
+        return parsed
+
+    def _build_extracted_label(self, parsed: dict[str, Any]) -> ExtractedLabel:
+        required_fields = EXTRACTION_JSON_SCHEMA.get("required", [])
+        missing_fields = [field for field in required_fields if field not in parsed]
+        if missing_fields:
+            raise VisionInvalidResponseError("Vision model output was missing required fields.")
+
+        try:
+            return ExtractedLabel(**parsed)
+        except ValidationError as exc:
+            raise VisionInvalidResponseError("Vision model output did not match the expected schema.") from exc
+
+    def _map_provider_exception(self, exc: Exception) -> Exception:
+        exc_name = exc.__class__.__name__.lower()
+        status_code = getattr(exc, "status_code", None)
+
+        if isinstance(exc, TimeoutError) or "timeout" in exc_name:
+            return VisionTimeoutError("Vision provider timed out.")
+
+        if status_code in (401, 403) or any(token in exc_name for token in ("auth", "permission", "forbidden", "unauthorized")):
+            return VisionAuthError("Vision provider authentication failed.")
+
+        return exc
+
     def extract(self, image_bytes: bytes) -> ExtractedLabel:
         # preprocess image
         processed = self._preprocess(image_bytes)
 
         if not self.openai:
-            logger.warning("OpenAI SDK not available; returning empty ExtractedLabel")
-            return ExtractedLabel()
+            raise RuntimeError("OpenAI SDK is not available.")
 
         b64 = base64.b64encode(processed).decode("ascii")
         user_prompt = build_user_prompt(b64)
@@ -123,54 +192,14 @@ class OpenAIVisionService(VisionService):
                 timeout=self.MODEL_TIMEOUT_SECONDS,
             )
 
-            # SDK returns structured output under 'output' or 'json_schema' depending on version.
-            parsed = None
-            # Try common locations defensively
-            if hasattr(response, "output"):
-                for item in response.output:
-                    if getattr(item, "type", None) == "json_schema":
-                        parsed = item.data
-                        break
-            if parsed is None and hasattr(response, "json"):
-                parsed = response.json()
-            if parsed is None:
-                # Fallback: try to extract content and parse
-                text = getattr(response, "text", None) or str(response)
-                try:
-                    parsed = json.loads(text)
-                except Exception:
-                    logger.exception("Failed to parse model response as JSON")
-                    return ExtractedLabel()
-
-            # parsed should be a dict matching schema
-            if isinstance(parsed, dict):
-                # Convert fields and defensively map types
-                def get_str(k):
-                    v = parsed.get(k)
-                    return v if isinstance(v, str) else None
-
-                def get_num(k):
-                    v = parsed.get(k)
-                    if isinstance(v, (int, float)):
-                        return float(v)
-                    try:
-                        return float(v)
-                    except Exception:
-                        return None
-
-                return ExtractedLabel(
-                    brand_name=get_str("brand_name"),
-                    class_type=get_str("class_type"),
-                    producer=get_str("producer"),
-                    country_of_origin=get_str("country_of_origin"),
-                    abv=get_num("abv"),
-                    net_contents=get_str("net_contents"),
-                    government_warning=get_str("government_warning"),
-                )
-
-            logger.warning("Model returned unexpected structured payload: %r", parsed)
-            return ExtractedLabel()
-
+            parsed = self._parse_response_payload(response)
+            return self._build_extracted_label(parsed)
+        except json.JSONDecodeError as exc:
+            raise VisionInvalidResponseError("Vision model returned invalid JSON.") from exc
+        except VisionInvalidResponseError:
+            raise
         except Exception as e:
-            logger.exception("Vision model call failed: %s", e)
-            return ExtractedLabel()
+            mapped = self._map_provider_exception(e)
+            if mapped is e:
+                raise
+            raise mapped from e

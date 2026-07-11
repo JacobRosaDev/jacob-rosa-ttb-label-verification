@@ -13,7 +13,13 @@ from pydantic import ValidationError
 
 from app.comparison import verify_label
 from app.models import ApplicationData, VerificationResult
-from app.vision_service import OpenAIVisionService, VisionService
+from app.vision_service import (
+    OpenAIVisionService,
+    VisionAuthError,
+    VisionInvalidResponseError,
+    VisionService,
+    VisionTimeoutError,
+)
 from app.models import BatchItemResult, BatchResponse
 
 logger = logging.getLogger(__name__)
@@ -137,11 +143,23 @@ async def verify(
             asyncio.to_thread(vision_service.extract, contents),
             VERIFY_TIMEOUT_MS / 1000,
         )
-    except asyncio.TimeoutError:
-        logger.exception("Vision extraction timed out")
+    except (asyncio.TimeoutError, VisionTimeoutError):
+        logger.warning("Vision extraction timed out")
         raise HTTPException(
             status_code=504,
             detail="Label extraction timed out. Please try a smaller, clearer image.",
+        )
+    except VisionAuthError:
+        logger.warning("Vision extraction authentication failed")
+        raise HTTPException(
+            status_code=502,
+            detail="Label extraction service is temporarily unavailable. Please try again later.",
+        )
+    except VisionInvalidResponseError:
+        logger.warning("Vision extraction returned invalid output")
+        raise HTTPException(
+            status_code=502,
+            detail="The image could not be read by the extraction service. Please try another image.",
         )
     except Exception:
         logger.exception("Vision extraction failed")

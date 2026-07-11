@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app, get_vision_service
-from app.vision_service import MockVisionService, VisionService
+from app.vision_service import MockVisionService, VisionAuthError, VisionService
 import json
 
 
@@ -152,6 +152,30 @@ def test_verify_handles_vision_service_failure_gracefully(client):
     payload = response.json()
     assert payload["error"] == "Verification failed"
     assert "unable to extract label text" in payload["message"].lower()
+
+
+class AuthFailingVisionService(VisionService):
+    def extract(self, image_bytes: bytes):
+        raise VisionAuthError("OPENAI_API_KEY=sk-secret provider body stacktrace")
+
+
+def test_verify_typed_vision_error_is_structured_and_sanitized(client):
+    app.dependency_overrides[get_vision_service] = lambda: AuthFailingVisionService()
+    response = client.post(
+        "/verify",
+        files={"image": ("label.png", io.BytesIO(b"PNGDATA"), "image/png")},
+        data=_base_form_data(),
+    )
+
+    assert response.status_code == 502
+    payload = response.json()
+    assert payload["error"] == "Verification failed"
+    assert "temporarily unavailable" in payload["message"].lower()
+    body = response.text.lower()
+    assert "sk-secret" not in body
+    assert "openai_api_key" not in body
+    assert "provider body" not in body
+    assert "stacktrace" not in body
 
 
 def _batch_meta_items(n):
