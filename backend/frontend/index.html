@@ -483,17 +483,17 @@
         return `
           <section class="field-result ${statusClass}">
             <div class="field-row">
-              <span class="field-name">${field.field_name.replace(/_/g, ' ')}</span>
+              <span class="field-name">${field.field.replace(/_/g, ' ')}</span>
               <span class="field-badge ${statusClass}">${field.status}</span>
             </div>
             <div class="field-values">
               <div>
                 <strong>Expected:</strong>
-                <div class="field-value-raw">${escapeHtml(field.submitted_value)}</div>
+                <div class="field-value-raw">${escapeHtml(field.expected)}</div>
               </div>
               <div>
                 <strong>Found:</strong>
-                <div class="field-value-raw ${hasFailure ? 'fail' : ''}">${escapeHtml(field.extracted_value)}</div>
+                <div class="field-value-raw ${hasFailure ? 'fail' : ''}">${escapeHtml(field.found)}</div>
               </div>
               <div class="field-reason">${escapeHtml(field.reason)}</div>
             </div>

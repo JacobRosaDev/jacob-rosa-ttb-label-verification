@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
 from app.comparison import verify_label
-from app.models import ApplicationData, VerificationResult
+from app.models import ApplicationData, BatchResult, FieldResult, VerificationResult
 from app.vision_service import (
     OpenAIVisionService,
     VisionAuthError,
@@ -20,7 +20,6 @@ from app.vision_service import (
     VisionService,
     VisionTimeoutError,
 )
-from app.models import BatchItemResult, BatchResponse
 
 logger = logging.getLogger(__name__)
 
@@ -180,7 +179,39 @@ async def verify(
     return result.model_copy(update={"latency_ms": latency_ms})
 
 
-@app.post("/verify/batch", response_model=BatchResponse)
+def _batch_failure_result(
+    message: str,
+    latency_ms: float,
+    *,
+    field: str = "batch_item",
+    expected: str = "processable batch item",
+    unreadable_image: bool = False,
+) -> VerificationResult:
+    found = ""
+    reason = message
+    if unreadable_image:
+        field = "raw_text"
+        expected = "readable label photo"
+        found = None
+
+    return VerificationResult(
+        overall_verdict="NEEDS_REVIEW",
+        field_results=[
+            FieldResult(
+                field=field,
+                match_type="exact",
+                expected=expected,
+                found=found,
+                status="FAIL",
+                reason=reason,
+            )
+        ],
+        timestamp=datetime.now(timezone.utc),
+        latency_ms=latency_ms,
+    )
+
+
+@app.post("/verify/batch", response_model=BatchResult)
 async def verify_batch(
     images: list[UploadFile] | None = File(None),
     metadata: str = Form(...),
@@ -212,41 +243,31 @@ async def verify_batch(
 
     semaphore = asyncio.Semaphore(BATCH_CONCURRENCY)
 
-    async def process_item(index: int, upload: UploadFile | None, meta: dict | None):
-        filename = upload.filename if upload is not None else ""
+    async def process_item(index: int, upload: UploadFile | None, meta: dict | None) -> VerificationResult:
         start = perf_counter()
-        errors: list[str] = []
-        verification = None
-        match = "error"
-        confidence = None
 
         # Validate upload
         if upload is None:
-            errors.append("missing image")
             duration = round((perf_counter() - start) * 1000, 3)
-            return BatchItemResult(index=index, filename=filename, verification=None, match=match, confidence=confidence, errors=errors, duration_ms=duration)
+            return _batch_failure_result("Missing image.", duration)
 
         if upload.content_type not in ALLOWED_IMAGE_TYPES:
-            errors.append("unsupported file type")
             duration = round((perf_counter() - start) * 1000, 3)
-            return BatchItemResult(index=index, filename=filename, verification=None, match=match, confidence=confidence, errors=errors, duration_ms=duration)
+            return _batch_failure_result("Unsupported file type.", duration)
 
         contents = await upload.read()
         if not contents:
-            errors.append("empty file")
             duration = round((perf_counter() - start) * 1000, 3)
-            return BatchItemResult(index=index, filename=filename, verification=None, match=match, confidence=confidence, errors=errors, duration_ms=duration)
+            return _batch_failure_result("Image file is empty.", duration, unreadable_image=True)
 
         if len(contents) > MAX_UPLOAD_SIZE_BYTES:
-            errors.append("file too large")
             duration = round((perf_counter() - start) * 1000, 3)
-            return BatchItemResult(index=index, filename=filename, verification=None, match=match, confidence=confidence, errors=errors, duration_ms=duration)
+            return _batch_failure_result("Image file is too large.", duration)
 
         # Validate metadata presence and fields
         if not isinstance(meta, dict):
-            errors.append("missing metadata for item")
             duration = round((perf_counter() - start) * 1000, 3)
-            return BatchItemResult(index=index, filename=filename, verification=None, match=match, confidence=confidence, errors=errors, duration_ms=duration)
+            return _batch_failure_result("Missing metadata for item.", duration)
 
         required_fields = [
             "brand_name",
@@ -257,65 +278,94 @@ async def verify_batch(
             "net_contents",
             "government_warning",
         ]
+        missing_fields = []
         for f in required_fields:
             if f not in meta:
-                errors.append(f"metadata missing field: {f}")
+                missing_fields.append(f)
 
-        if errors:
+        if missing_fields:
             duration = round((perf_counter() - start) * 1000, 3)
-            return BatchItemResult(index=index, filename=filename, verification=None, match=match, confidence=confidence, errors=errors, duration_ms=duration)
+            return _batch_failure_result(
+                f"Metadata missing fields: {', '.join(missing_fields)}.",
+                duration,
+            )
+
+        try:
+            submitted = ApplicationData(
+                brand_name=meta["brand_name"],
+                class_type=meta["class_type"],
+                producer=meta["producer"],
+                country_of_origin=meta["country_of_origin"],
+                abv=float(meta["abv"]),
+                net_contents=meta["net_contents"],
+                government_warning=meta["government_warning"],
+            )
+        except ValidationError as exc:
+            messages = [
+                f"{err.get('loc', [''])[-1]}: {err.get('msg', 'invalid value')}"
+                for err in exc.errors()
+            ]
+            duration = round((perf_counter() - start) * 1000, 3)
+            return _batch_failure_result(
+                f"Invalid metadata: {'; '.join(messages)}.",
+                duration,
+            )
+        except Exception:
+            duration = round((perf_counter() - start) * 1000, 3)
+            return _batch_failure_result("Invalid metadata.", duration)
 
         # Run extraction and verification with concurrency limit and timeout
         async with semaphore:
             try:
                 extracted = await asyncio.wait_for(asyncio.to_thread(vision_service.extract, contents), ITEM_TIMEOUT_MS / 1000)
-            except asyncio.TimeoutError:
-                errors.append("extraction timeout")
+            except (asyncio.TimeoutError, VisionTimeoutError):
                 duration = round((perf_counter() - start) * 1000, 3)
-                return BatchItemResult(index=index, filename=filename, verification=None, match=match, confidence=confidence, errors=errors, duration_ms=duration)
-            except Exception as e:
-                logger.exception("Vision extraction failed for batch item %s", index)
-                errors.append("extraction failed")
-                duration = round((perf_counter() - start) * 1000, 3)
-                return BatchItemResult(index=index, filename=filename, verification=None, match=match, confidence=confidence, errors=errors, duration_ms=duration)
-
-            # Build ApplicationData from meta
-            try:
-                submitted = ApplicationData(
-                    brand_name=meta["brand_name"],
-                    class_type=meta["class_type"],
-                    producer=meta["producer"],
-                    country_of_origin=meta["country_of_origin"],
-                    abv=float(meta["abv"]),
-                    net_contents=meta["net_contents"],
-                    government_warning=meta["government_warning"],
+                return _batch_failure_result(
+                    "The photo could not be read before the extraction timeout.",
+                    duration,
+                    unreadable_image=True,
                 )
-            except ValidationError as exc:
-                errors.extend(
-                    f"invalid metadata {err.get('loc', [''])[-1]}: {err.get('msg', 'invalid value')}"
-                    for err in exc.errors()
-                )
+            except VisionInvalidResponseError:
                 duration = round((perf_counter() - start) * 1000, 3)
-                return BatchItemResult(index=index, filename=filename, verification=None, match=match, confidence=confidence, errors=errors, duration_ms=duration)
+                return _batch_failure_result(
+                    "The photo could not be read by the extraction service.",
+                    duration,
+                    unreadable_image=True,
+                )
+            except VisionAuthError:
+                duration = round((perf_counter() - start) * 1000, 3)
+                return _batch_failure_result(
+                    "Label extraction service is temporarily unavailable.",
+                    duration,
+                )
             except Exception:
+                logger.exception("Vision extraction failed for batch item %s", index)
                 duration = round((perf_counter() - start) * 1000, 3)
-                return BatchItemResult(index=index, filename=filename, verification=None, match=match, confidence=confidence, errors=errors, duration_ms=duration)
+                return _batch_failure_result(
+                    "The photo could not be read by the extraction service.",
+                    duration,
+                    unreadable_image=True,
+                )
 
             result = verify_label(extracted, submitted)
-            match = "passed" if result.overall_verdict == "APPROVED" else "needs-review"
             duration = round((perf_counter() - start) * 1000, 3)
-            verification = result.model_copy(update={"latency_ms": duration})
-            return BatchItemResult(index=index, filename=filename, verification=verification, match=match, confidence=confidence, errors=errors or None, duration_ms=duration)
+            return result.model_copy(update={"latency_ms": duration})
 
     # Spawn tasks
     tasks = [process_item(i, img, meta) for (i, img, meta) in pairs]
-    results = await asyncio.gather(*tasks)
+    items = await asyncio.gather(*tasks)
 
-    passed = sum(1 for r in results if r.match == "passed")
-    needs_review = sum(1 for r in results if r.match == "needs-review")
-    errors_count = sum(1 for r in results if r.match == "error")
+    passed = sum(1 for item in items if item.overall_verdict == "APPROVED")
+    needs_review = sum(1 for item in items if item.overall_verdict != "APPROVED")
 
-    return BatchResponse(total=len(results), passed=passed, needs_review=needs_review, errors=errors_count, results=results)
+    return BatchResult(
+        items=items,
+        summary={
+            "passed": passed,
+            "needs_review": needs_review,
+            "total": len(items),
+        },
+    )
 
 
 frontend_dir = Path(__file__).resolve().parent.parent / "frontend"

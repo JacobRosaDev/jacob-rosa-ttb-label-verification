@@ -156,31 +156,25 @@
           return;
         }
 
-        summary.textContent = `Total: ${payload.total} • Passed: ${payload.passed} • Needs review: ${payload.needs_review} • Errors: ${payload.errors}`;
-        for (const r of payload.results) {
+        summary.textContent = `Total: ${payload.summary.total} - Passed: ${payload.summary.passed} - Needs review: ${payload.summary.needs_review}`;
+        payload.items.forEach((vr, index) => {
           const div = document.createElement('div');
           div.className = 'result-item';
-          const badge = r.match === 'passed' ? '<span class="badge-pass">PASSED</span>' : (r.match === 'needs-review' ? '<span class="badge-review">NEEDS REVIEW</span>' : '<span class="badge-error">ERROR</span>');
-          div.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><div>${r.index}: ${r.filename}</div><div>${badge}</div></div>`;
-          if (r.verification) {
-            const vr = r.verification;
+          const badge = vr.overall_verdict === 'APPROVED' ? '<span class="badge-pass">APPROVED</span>' : '<span class="badge-review">NEEDS REVIEW</span>';
+          div.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><div>Item ${index + 1}</div><div>${badge}</div></div>`;
+          if (vr) {
             const ul = document.createElement('div');
             ul.style.marginTop = '0.5rem';
             for (const f of vr.field_results) {
               const p = document.createElement('div');
-              p.innerHTML = `<strong>${f.field_name.replace(/_/g,' ')}</strong>: <span class="muted">expected</span> <div>${escapeHtml(f.submitted_value)}</div><div class="muted">found</div><div>${escapeHtml(f.extracted_value)}</div><div class="muted">${escapeHtml(f.reason)}</div><hr/>`;
+              p.innerHTML = `<strong>${f.field.replace(/_/g,' ')}</strong>: <span class="muted">expected</span> <div>${escapeHtml(f.expected)}</div><div class="muted">found</div><div>${escapeHtml(f.found)}</div><div class="muted">${escapeHtml(f.reason)}</div><hr/>`;
               ul.appendChild(p);
             }
             div.appendChild(ul);
-          } else if (r.errors) {
-            const err = document.createElement('div');
-            err.style.color = '#861818';
-            err.textContent = r.errors.join('; ');
-            div.appendChild(err);
           }
 
           resultsEl.appendChild(div);
-        }
+        });
       } catch (e) {
         alert('Unable to contact server');
       } finally {
