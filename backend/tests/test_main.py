@@ -1,11 +1,19 @@
 import io
+import logging
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app, get_vision_service
 from app.models import ExtractedLabel
-from app.vision_service import MockVisionService, VisionAuthError, VisionInvalidResponseError, VisionService
+from app.vision_service import (
+    MockVisionService,
+    OpenAIVisionService,
+    VisionAuthError,
+    VisionInvalidResponseError,
+    VisionModelValidationError,
+    VisionService,
+)
 import json
 
 
@@ -21,6 +29,98 @@ def mock_vision_service_override():
 @pytest.fixture
 def client():
     return TestClient(app, raise_server_exceptions=False)
+
+
+class FakeModelResource:
+    def __init__(self, exc: Exception | None = None):
+        self.exc = exc
+        self.calls = []
+
+    def retrieve(self, model: str):
+        self.calls.append(model)
+        if self.exc is not None:
+            raise self.exc
+        return {"id": model}
+
+
+class FakeOpenAIClient:
+    def __init__(self, exc: Exception | None = None):
+        self.models = FakeModelResource(exc=exc)
+
+
+class StartupTestOpenAIVisionService(OpenAIVisionService):
+    VISION_MODEL = "startup-test-model"
+
+    def __init__(self, client: FakeOpenAIClient):
+        self.api_key = "not-used"
+        self.client = client
+
+
+class TrackingMockVisionService(MockVisionService):
+    def __init__(self):
+        super().__init__(scenario="clear")
+        self.validate_model_available_called = False
+
+    def validate_model_available(self):
+        self.validate_model_available_called = True
+        raise AssertionError("mock service validation should be skipped")
+
+
+def test_startup_validates_configured_openai_model_successfully(caplog):
+    fake_client = FakeOpenAIClient()
+    service = StartupTestOpenAIVisionService(fake_client)
+    app.dependency_overrides[get_vision_service] = lambda: service
+    caplog.set_level(logging.INFO, logger="app.main")
+
+    with TestClient(app, raise_server_exceptions=False) as test_client:
+        response = test_client.get("/health")
+
+    assert response.status_code == 200
+    assert fake_client.models.calls == ["startup-test-model"]
+    assert "startup-test-model" in caplog.text
+
+
+def test_startup_validation_failure_stops_application_startup_with_sanitized_error():
+    fake_client = FakeOpenAIClient(
+        exc=RuntimeError("OPENAI_API_KEY=sk-secret provider response body stacktrace")
+    )
+    service = StartupTestOpenAIVisionService(fake_client)
+    app.dependency_overrides[get_vision_service] = lambda: service
+
+    with pytest.raises(VisionModelValidationError) as exc_info:
+        with TestClient(app, raise_server_exceptions=False):
+            pass
+
+    message = str(exc_info.value)
+    assert "startup-test-model" in message
+    assert "sk-secret" not in message
+    assert "OPENAI_API_KEY" not in message
+    assert "provider response body" not in message
+    assert exc_info.value.__suppress_context__ is True
+
+
+def test_startup_skips_model_validation_for_mock_vision_service():
+    service = TrackingMockVisionService()
+    app.dependency_overrides[get_vision_service] = lambda: service
+
+    with TestClient(app, raise_server_exceptions=False) as test_client:
+        response = test_client.get("/health")
+
+    assert response.status_code == 200
+    assert service.validate_model_available_called is False
+
+
+def test_startup_validation_runs_once_despite_multiple_health_requests():
+    fake_client = FakeOpenAIClient()
+    service = StartupTestOpenAIVisionService(fake_client)
+    app.dependency_overrides[get_vision_service] = lambda: service
+
+    with TestClient(app, raise_server_exceptions=False) as test_client:
+        assert test_client.get("/health").status_code == 200
+        assert test_client.get("/health").status_code == 200
+        assert test_client.get("/health").status_code == 200
+
+    assert fake_client.models.calls == ["startup-test-model"]
 
 
 def _base_form_data():

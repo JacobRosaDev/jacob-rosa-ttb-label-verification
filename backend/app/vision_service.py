@@ -31,6 +31,10 @@ class VisionAuthError(RuntimeError):
     """Vision provider rejected authentication or authorization."""
 
 
+class VisionModelValidationError(RuntimeError):
+    """Configured vision model is unavailable or cannot be validated."""
+
+
 class VisionService(ABC):
     @abstractmethod
     def extract(self, image_bytes: bytes) -> ExtractedLabel:
@@ -88,6 +92,19 @@ class OpenAIVisionService(VisionService):
         self.client = client
         if self.client is None and self.api_key:
             self.client = OpenAI(api_key=self.api_key, timeout=self.MODEL_TIMEOUT_SECONDS)
+
+    def validate_model_available(self) -> None:
+        if not self.client:
+            raise VisionModelValidationError(
+                f"Vision model '{self.VISION_MODEL}' could not be validated."
+            )
+
+        try:
+            self.client.models.retrieve(self.VISION_MODEL)
+        except Exception:
+            raise VisionModelValidationError(
+                f"Vision model '{self.VISION_MODEL}' is unavailable or could not be validated."
+            ) from None
 
     def _preprocess(self, image_bytes: bytes) -> bytes:
         # Downscale to a reasonable max dimension and re-encode as JPEG to reduce payload

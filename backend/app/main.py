@@ -15,9 +15,11 @@ from pydantic import ValidationError
 from app.comparison import verify_label
 from app.models import ApplicationData, BatchResult, FieldResult, VerificationResult
 from app.vision_service import (
+    MockVisionService,
     OpenAIVisionService,
     VisionAuthError,
     VisionInvalidResponseError,
+    VisionModelValidationError,
     VisionService,
     VisionTimeoutError,
 )
@@ -37,6 +39,32 @@ app = FastAPI(title="ttb-label-verification")
 @lru_cache(maxsize=1)
 def get_vision_service() -> VisionService:
     return OpenAIVisionService()
+
+
+def _get_startup_vision_service() -> VisionService:
+    override = app.dependency_overrides.get(get_vision_service)
+    if override is not None:
+        return override()
+    return get_vision_service()
+
+
+@app.on_event("startup")
+def validate_startup_vision_model() -> None:
+    vision_service = _get_startup_vision_service()
+
+    if isinstance(vision_service, MockVisionService):
+        return
+
+    if isinstance(vision_service, OpenAIVisionService):
+        logger.info("Configured VISION_MODEL=%s", vision_service.VISION_MODEL)
+        try:
+            vision_service.validate_model_available()
+        except VisionModelValidationError:
+            raise
+        except Exception:
+            raise VisionModelValidationError(
+                f"Vision model '{vision_service.VISION_MODEL}' is unavailable or could not be validated."
+            ) from None
 
 
 def _format_validation_message(exc: RequestValidationError) -> str:
