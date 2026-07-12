@@ -1,118 +1,113 @@
 # TTB Label Verification Proof-of-Concept
 
-A stateless FastAPI backend with a static HTML/JS frontend for verifying TTB label fields from images.
-
-## Project Purpose
-
-This project extracts text from a label image, compares it against user-submitted field values, and verifies whether the label matches expected data.
-
-- **Government warning** is validated as an exact case-sensitive match after whitespace collapse.
-- **All other fields** are verified with fuzzy/normalized comparison or tolerant numeric parsing.
-- **Batch upload** is supported via a dedicated frontend page.
-- No database is used; the service is stateless and in-memory.
+A stateless FastAPI service with static HTML pages for checking whether distilled spirits label images match seven expected TTB label fields.
 
 ## Live Demo
 
-- **Live app URL:** https://ttb-label-verification-lwrd.onrender.com
+- **Frontend URL:** https://ttb-label-verification-lwrd.onrender.com
 - **Backend base URL:** https://ttb-label-verification-lwrd.onrender.com
 - **Health URL:** https://ttb-label-verification-lwrd.onrender.com/health
 - **Last verified:** July 12, 2026
-- **Deployed vision model:** `gpt-4.1-nano`
+- **Production vision model:** `gpt-4.1-nano`
 
-## Verified Performance
+## What The App Does
 
-Final live benchmark results:
+The app accepts one label image, or a batch of label images, plus expected application data. It sends each image to a vision extraction service, receives structured label text, and compares the extracted values against the submitted values.
 
-- **Measurement timestamp:** `2026-07-12T21:55:45.613944+00:00`
-- **Tested endpoint:** `POST https://ttb-label-verification-lwrd.onrender.com/verify`
-- **Successful measured sample size:** 20
-- **Excluded warm-up requests:** 1
-- **Failed measured requests:** 0
-- **Percentile method:** nearest-rank
-- **p50 latency:** 4,166.5 ms
-- **p95 latency:** 5,683.6 ms
-- **Target:** under 5,000 ms
-- **p50 meets target:** Yes
-- **p95 meets target:** No
-- **Benchmark script:** `backend/scripts/benchmark_live.py`
+- Government warning text is an exact, case-sensitive match after whitespace collapse.
+- Brand name, class/type, and producer use fuzzy normalized text matching.
+- Country of origin accepts known country synonyms.
+- ABV supports percent values and proof values; net contents use unit-normalized comparison.
+- The service uses no database and does not persist uploaded images or results.
 
-The p50 latency meets the five-second target. The p95 latency currently exceeds the target by 683.6 ms.
+## Architecture
 
-Reproducible benchmark command:
+- `backend/app/main.py`: FastAPI app, static frontend mount, request validation, `/health`, `/verify`, and `/verify/batch`.
+- `backend/app/vision_service.py`: vision extraction interface, test mock, and `OpenAIVisionService`.
+- `OpenAIVisionService._preprocess`: downsizes uploaded images to `MAX_IMAGE_DIMENSION` and re-encodes as JPEG using `JPEG_QUALITY` before sending to the model.
+- `backend/app/comparison.py`: normalization, fuzzy matching, unit parsing, exact government warning comparison, and final verdict aggregation.
+- `backend/app/models.py`: Pydantic request/response data contracts.
+- `backend/frontend/index.html`: single-label upload page.
+- `backend/frontend/batch.html`: batch upload page.
+- `backend/scripts/benchmark_live.py`: live single-label performance benchmark against a deployed service.
 
-```powershell
-uv run python scripts\benchmark_live.py --base-url https://ttb-label-verification-lwrd.onrender.com --image "<path-to-real-label-image>" --runs 20
-```
-
-## Local Setup
-
-### Prerequisites
+## Tech Stack
 
 - Python 3.12+
-- `pip`
-- `uv` package manager (installed via `pip install uv`)
+- FastAPI
+- Uvicorn
+- Pydantic
+- Pillow
+- RapidFuzz
+- OpenAI Python SDK
+- `python-multipart`
+- Static HTML/CSS/JavaScript frontend
+- Vision model: `gpt-4.1-nano`
+- Render deployment config in `render.yaml`
 
-### Installation
+## Environment Variables
+
+| Name | Required | Code default | Purpose |
+| --- | --- | --- | --- |
+| `OPENAI_API_KEY` | Yes | No default | API key used by `OpenAIVisionService`. |
+| `VISION_MODEL` | No | `gpt-4.1-nano` | OpenAI vision-capable model used for extraction. |
+| `MAX_IMAGE_DIMENSION` | No | `900` | Longest image side after preprocessing. |
+| `JPEG_QUALITY` | No | `80` | JPEG quality used after preprocessing. |
+| `MODEL_TIMEOUT_SECONDS` | No | `4` | OpenAI client timeout. |
+| `MAX_BATCH_SIZE` | No | `8` | Maximum batch item count accepted by `/verify/batch`. |
+| `BATCH_CONCURRENCY` | No | `4` | Maximum concurrent extraction jobs inside a batch request. |
+| `ITEM_TIMEOUT_MS` | No | `3000` | Per-item extraction timeout for batch requests. |
+| `VERIFY_TIMEOUT_MS` | No | `4500` | Extraction timeout for single-label requests. |
+
+`PORT` is supplied by Render to the start command. The application code does not read `PORT` directly.
+
+Secrets must come from environment variables. Do not commit `.env` or `.env.local`.
+
+## Local Setup
 
 From the repository root:
 
 ```powershell
 cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install uv
 uv sync
 ```
 
-### Environment Variables
+`backend/.env.example` is reference documentation only. The application code does not load `.env` files automatically, so set `OPENAI_API_KEY` in your shell or deployment environment before using the real vision service.
 
-Copy the example env file and set your API key:
+## Run Locally
+
+Set the API key for the current PowerShell session:
+
+```powershell
+$env:OPENAI_API_KEY = "your-api-key-here"
+```
+
+This value lasts only for the current PowerShell session. The real key must never be committed.
 
 ```powershell
 cd backend
-copy .env.example .env
+uv run python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Then edit `backend/.env` to add your real API key:
-
-```ini
-OPENAI_API_KEY=your-real-key-here
-```
-
-**Security:**
-
-- Do not commit `.env` or `.env.local`.
-- `.env.example` may contain placeholder names only.
-- API keys must live in environment variables only.
-
-## Running Locally
-
-Start the backend service:
-
-```powershell
-cd backend
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-Open the frontend pages in your browser:
+Open:
 
 - Single-label verification: `http://127.0.0.1:8000/`
 - Batch verification: `http://127.0.0.1:8000/batch.html`
+- Health check: `http://127.0.0.1:8000/health`
 
 ## API Endpoints
 
-The backend exposes these routes:
+- `GET /health`
+- `POST /verify`
+- `POST /verify/batch`
 
-- `GET /health` — health check
-- `POST /verify` — single image verification
-- `POST /verify/batch` — batch verification
+### Single-Label Request
 
-### Single-label verification
+`POST /verify` expects `multipart/form-data`:
 
-The frontend submits a multipart/form-data request to `/verify` with:
-
-- `image` file
+- `image`: JPEG, JPG, PNG, or WEBP file, under 8 MB
 - `brand_name`
 - `class_type`
 - `producer`
@@ -121,70 +116,275 @@ The frontend submits a multipart/form-data request to `/verify` with:
 - `net_contents`
 - `government_warning`
 
-### Batch verification
+PowerShell example:
 
-The batch frontend submits a multipart/form-data request to `/verify/batch` with:
+```powershell
+$BASE_URL = "https://ttb-label-verification-lwrd.onrender.com"
+$IMAGE_PATH = "C:\labels\label.png"
 
-- one or more `images`
-- `metadata` JSON string containing an array of label field objects
+curl.exe -X POST "$BASE_URL/verify" `
+  -F "image=@$IMAGE_PATH;type=image/png" `
+  -F "brand_name=Ketel One" `
+  -F "class_type=Vodka" `
+  -F "producer=Ketel Distillery" `
+  -F "country_of_origin=Netherlands" `
+  -F "abv=40.0" `
+  -F "net_contents=750 mL" `
+  -F "government_warning=GOVERNMENT WARNING: (1) According to the Surgeon General, women should not drink alcoholic beverages during pregnancy because of the risk of birth defects. (2) Consumption of alcoholic beverages impairs your ability to drive a car or operate machinery, and may cause health problems."
+```
 
-Each metadata object must include the same seven required fields.
+### Batch Request
 
-## Frontend Pages
+`POST /verify/batch` expects `multipart/form-data`:
 
-- `backend/frontend/index.html` — single label upload and verification
-- `backend/frontend/batch.html` — multiple label upload with per-item metadata
+- repeated `images` fields
+- `metadata`: JSON array with one object per image
 
-## Approach
+Each metadata object must include:
 
-1. Upload the label image(s).
-2. The backend sends the image to a vision service for structured text extraction.
-3. Extracted fields are compared against submitted data.
-4. Results are returned, including per-field pass/fail details and latency.
+- `brand_name`
+- `class_type`
+- `producer`
+- `country_of_origin`
+- `abv`
+- `net_contents`
+- `government_warning`
 
-## Verification Rules
+PowerShell example:
 
-- `government_warning` requires an exact text match after whitespace normalization.
-- `brand_name`, `class_type`, and `producer` use fuzzy text matching.
-- `country_of_origin` accepts synonyms like `USA` / `United States` / `US`.
-- `abv` is parsed and compared within ±0.1%.
-- `net_contents` is normalized to milliliters and compared within ±2%.
+```powershell
+$BASE_URL = "https://ttb-label-verification-lwrd.onrender.com"
+$IMAGE_1 = "C:\labels\label-1.png"
+$IMAGE_2 = "C:\labels\label-2.png"
+$METADATA = @'
+[
+  {
+    "brand_name": "Ketel One",
+    "class_type": "Vodka",
+    "producer": "Ketel Distillery",
+    "country_of_origin": "Netherlands",
+    "abv": 40.0,
+    "net_contents": "750 mL",
+    "government_warning": "GOVERNMENT WARNING: (1) According to the Surgeon General, women should not drink alcoholic beverages during pregnancy because of the risk of birth defects. (2) Consumption of alcoholic beverages impairs your ability to drive a car or operate machinery, and may cause health problems."
+  },
+  {
+    "brand_name": "Ketel One",
+    "class_type": "Vodka",
+    "producer": "Ketel Distillery",
+    "country_of_origin": "Netherlands",
+    "abv": 40.0,
+    "net_contents": "750 mL",
+    "government_warning": "GOVERNMENT WARNING: (1) According to the Surgeon General, women should not drink alcoholic beverages during pregnancy because of the risk of birth defects. (2) Consumption of alcoholic beverages impairs your ability to drive a car or operate machinery, and may cause health problems."
+  }
+]
+'@
 
-## Tools and Dependencies
+curl.exe -X POST "$BASE_URL/verify/batch" `
+  -F "images=@$IMAGE_1;type=image/png" `
+  -F "images=@$IMAGE_2;type=image/png" `
+  -F "metadata=$METADATA"
+```
 
-- FastAPI
-- Uvicorn
-- Pydantic
-- Pillow
-- RapidFuzz
-- OpenAI Python SDK
-- python-multipart
+## Response Shapes
+
+Successful `POST /verify` response:
+
+```json
+{
+  "overall_verdict": "APPROVED",
+  "field_results": [
+    {
+      "field": "brand_name",
+      "match_type": "fuzzy",
+      "expected": "Ketel One",
+      "found": "Ketel One",
+      "status": "PASS",
+      "reason": "Fuzzy match at 100.0%"
+    }
+  ],
+  "timestamp": "2026-07-12T21:55:45.613944Z",
+  "latency_ms": 4166.5
+}
+```
+
+Successful `POST /verify/batch` response:
+
+```json
+{
+  "items": [
+    {
+      "overall_verdict": "APPROVED",
+      "field_results": [
+        {
+          "field": "brand_name",
+          "match_type": "fuzzy",
+          "expected": "Ketel One",
+          "found": "Ketel One",
+          "status": "PASS",
+          "reason": "Fuzzy match at 100.0%"
+        }
+      ],
+      "timestamp": "2026-07-12T21:55:45.613944Z",
+      "latency_ms": 4166.5
+    }
+  ],
+  "summary": {
+    "passed": 1,
+    "needs_review": 0,
+    "total": 1
+  }
+}
+```
+
+Validation or request error response:
+
+```json
+{
+  "error": "Invalid request",
+  "message": "Image file is required."
+}
+```
+
+Vision or server error response:
+
+```json
+{
+  "error": "Verification failed",
+  "message": "Label extraction service is temporarily unavailable. Please try again later."
+}
+```
+
+Batch item-level problems can return HTTP 200 with an item marked `NEEDS_REVIEW` and a failing `field_results` entry.
+
+## Comparison Rules
+
+- `government_warning`: both extracted and submitted text are stripped and internal whitespace runs are collapsed to single spaces, then compared exactly with case sensitivity preserved. The comparison does not lowercase, canonicalize, paraphrase, or substitute a warning template.
+- `brand_name`, `class_type`, `producer`: normalized with punctuation removed and whitespace collapsed, then compared with RapidFuzz `token_sort_ratio`; the pass threshold is 90.
+- `country_of_origin`: synonym-aware match, including values such as `USA`, `US`, and `United States`.
+- `abv`: parses numeric ABV values, percent values, and proof values by dividing proof by 2; comparison tolerance is plus or minus 0.1 percentage points.
+- `net_contents`: parses supported units to milliliters and allows plus or minus 1 mL.
+- Missing or unreadable extracted values fail the relevant field and produce `NEEDS_REVIEW`.
+
+## Performance
+
+Final live benchmark results already recorded for the deployed service:
+
+- **Measurement timestamp:** `2026-07-12T23:08:58.749129+00:00`
+- **Host:** `https://ttb-label-verification-lwrd.onrender.com`
+- **Tested endpoint:** `POST /verify`
+- **Measured runs:** 20
+- **Successful measured runs:** 20
+- **Excluded cold-start/warm-up requests:** 1
+- **Failed measured requests:** 0
+- **Percentile method:** nearest-rank
+- **p50 latency:** 3,821.0 ms
+- **p95 latency:** 5,157.4 ms
+- **Target:** single-label result under 5,000 ms
+- **p50 vs target:** Meets target
+- **p95 vs target:** Does not meet target
+- **Benchmark script:** `backend/scripts/benchmark_live.py`
+
+The benchmark script sends one warm-up request before the measured runs. The exact cold-start latency was not recorded because the warm-up request was excluded. These results do not claim that all requests complete under 5 seconds; the recorded p95 is above the target.
+
+`backend/scripts/benchmark_live.py` currently sends hardcoded Hennessy metadata: `HENNESSY COGNAC`, `COGNAC`, `JAS HENNESSY & CO.`, `FRANCE`, `40`, `200 ml`, and the matching warning text. Run it from `backend` with the matching Hennessy label image:
+
+```powershell
+uv run python scripts\benchmark_live.py --base-url https://ttb-label-verification-lwrd.onrender.com --image "C:\labels\label.png" --runs 20
+```
+
+## Running Tests
+
+```powershell
+cd backend
+uv run pytest
+```
+
+The automated tests use `MockVisionService` or fake OpenAI clients. They do not require a real API key.
+
+## Live Smoke Checks
+
+Health check:
+
+```powershell
+curl.exe https://ttb-label-verification-lwrd.onrender.com/health
+```
+
+Expected output shape:
+
+```json
+{
+  "status": "ok",
+  "ts": "<current UTC timestamp>"
+}
+```
+
+End-to-end single-label check with a real local image:
+
+The chosen image must match the metadata submitted in the form fields.
+
+```powershell
+$BASE_URL = "https://ttb-label-verification-lwrd.onrender.com"
+$IMAGE_PATH = "C:\labels\label.png"
+
+curl.exe -X POST "$BASE_URL/verify" `
+  -F "image=@$IMAGE_PATH;type=image/png" `
+  -F "brand_name=Ketel One" `
+  -F "class_type=Vodka" `
+  -F "producer=Ketel Distillery" `
+  -F "country_of_origin=Netherlands" `
+  -F "abv=40.0" `
+  -F "net_contents=750 mL" `
+  -F "government_warning=GOVERNMENT WARNING: (1) According to the Surgeon General, women should not drink alcoholic beverages during pregnancy because of the risk of birth defects. (2) Consumption of alcoholic beverages impairs your ability to drive a car or operate machinery, and may cause health problems."
+```
+
+## Deployment
+
+`render.yaml` defines the Render web service:
+
+- `rootDir`: `backend`
+- build command: `pip install --upgrade pip && pip install uv && uv sync --frozen`
+- start command: `uv run --frozen python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- health check path: `/health`
+- environment variables: `OPENAI_API_KEY` and `VISION_MODEL=gpt-4.1-nano`
 
 ## Assumptions
 
-- Uploaded images are valid label photos (JPEG/PNG/WEBP).
-- Vision API access is available via `OPENAI_API_KEY`.
-- The service is stateless and does not persist data.
+- Uploaded files are label photos in JPEG, JPG, PNG, or WEBP format.
+- Operators provide the seven expected fields for every label.
+- Vision extraction may be incomplete when the image is blurry, cropped, low contrast, or otherwise hard to read.
+- API access is available through `OPENAI_API_KEY` in the runtime environment.
 
 ## Limitations
 
 - No database or persistent storage.
-- No user authentication.
-- Results are not stored across requests.
-- Performance depends on the vision model and network.
-- Poor image quality may produce incomplete or failed extraction.
+- No user accounts or authentication.
+- No saved audit history.
+- No retry queue for failed vision extraction.
+- Performance depends on image size, image quality, model latency, host cold starts, and network conditions.
+- Batch requests are capped at 8 items by default.
+- The implemented batch cap is 8 items, not the broader brief's 300-item target.
 
-## Deployment
+## Tradeoffs
 
-If deploying to Render or Railway, use the `backend` directory as the root and run:
+- The app prioritizes stateless proof-of-concept simplicity over persistence, audit trails, and user management.
+- Batch upload is supported, but capped at 8 items to keep latency and resource use bounded; this proof-of-concept intentionally does not implement the 300-item target from the broader brief.
+- There is no `USE_MOCK_VISION` environment switch; tests inject `MockVisionService` through FastAPI dependency overrides.
+- Image preprocessing reduces payload size and latency, but may discard some visual detail.
+- p50 live latency met the 5-second target in the recorded benchmark; p95 did not.
 
-```bash
-pip install --upgrade pip && pip install uv && uv sync
-uvicorn app.main:app --host 0.0.0.0 --port $PORT
-```
+## Secret Handling
 
-## Security Notes
+- Store `OPENAI_API_KEY` only in environment variables or local ignored `.env` files.
+- Do not hardcode API keys in code, docs, scripts, tests, or deployment config.
+- Do not commit `.env` or `.env.local`.
+- `render.yaml` marks `OPENAI_API_KEY` with `sync: false`.
 
-- `.env` and `.env.local` must never be committed.
-- `.env.example` is safe and should contain only placeholder values.
-- All secret keys must come from environment variables only.
+## Approach And Tools
+
+- Codex is used to draft plans, documentation, code changes, and verification commands.
+- Working cadence: PLAN -> REVIEW -> EXECUTE -> TEST -> COMMIT -> PUSH.
+- The developer reviews diffs, corrects assumptions, and approves scope before commits.
+- Tests are run before commits when code or contract-sensitive documentation changes.
+- Live benchmarking is run by the developer against the deployed service with a real matching label image; recorded benchmark facts are preserved rather than invented.
+- The developer made a reviewed decision to align the application default, Render config, and production deployment on `gpt-4.1-nano`.
+- Scope stays limited to the current approved phase.
