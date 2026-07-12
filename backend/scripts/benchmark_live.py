@@ -23,17 +23,17 @@ FIVE_SECONDS_MS = 5_000.0
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/webp"}
 
 FORM_FIELDS = {
-    "brand_name": "Ketel One",
-    "class_type": "Vodka",
-    "producer": "Ketel Distillery",
-    "country_of_origin": "Netherlands",
-    "abv": "40.0",
-    "net_contents": "750 mL",
+    "brand_name": "HENNESSY COGNAC",
+    "class_type": "COGNAC",
+    "producer": "JAS HENNESSY & CO.",
+    "country_of_origin": "FRANCE",
+    "abv": "40",
+    "net_contents": "200 ml",
     "government_warning": (
-        "GOVERNMENT WARNING: (1) According to the Surgeon General, women should not drink "
-        "alcoholic beverages during pregnancy because of the risk of birth defects. "
-        "(2) Consumption of alcoholic beverages impairs your ability to drive a car or "
-        "operate machinery, and may cause health problems."
+        "(1) ACCORDING TO THE SURGEON GENERAL, WOMEN SHOULD NOT DRINK ALCOHOLIC "
+        "BEVERAGES DURING PREGNANCY BECAUSE OF THE RISK OF BIRTH DEFECTS. "
+        "(2) CONSUMPTION OF ALCOHOLIC BEVERAGES IMPAIRS YOUR ABILITY TO DRIVE A "
+        "CAR OR OPERATE MACHINERY, AND MAY CAUSE HEALTH PROBLEMS."
     ),
 }
 
