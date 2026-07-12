@@ -1,4 +1,5 @@
 import logging
+from functools import lru_cache
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
@@ -33,6 +34,7 @@ VERIFY_TIMEOUT_MS = int(__import__("os").environ.get("VERIFY_TIMEOUT_MS", 4500))
 app = FastAPI(title="ttb-label-verification")
 
 
+@lru_cache(maxsize=1)
 def get_vision_service() -> VisionService:
     return OpenAIVisionService()
 

@@ -50,4 +50,7 @@ SYSTEM_INSTRUCTIONS = (
 
 
 def build_user_prompt(image_b64: str) -> str:
+    if not image_b64:
+        return "Extract the label data from this image.\nReturn the JSON object only."
+
     return f"Extract the label data from this image (base64):\n{image_b64}\nReturn the JSON object only."

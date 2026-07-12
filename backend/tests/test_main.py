@@ -11,9 +11,11 @@ import json
 
 @pytest.fixture(autouse=True)
 def mock_vision_service_override():
+    get_vision_service.cache_clear()
     app.dependency_overrides[get_vision_service] = lambda: MockVisionService(scenario="clear")
     yield
     app.dependency_overrides.clear()
+    get_vision_service.cache_clear()
 
 
 @pytest.fixture
@@ -49,6 +51,28 @@ def test_verify_returns_approved_with_clear_mock(client):
     assert isinstance(payload["field_results"], list)
     assert payload["field_results"][0]["field"] == "brand_name"
     assert payload["latency_ms"] >= 0
+
+
+def test_get_vision_service_returns_cached_instance(monkeypatch):
+    instances = []
+
+    class FakeOpenAIVisionService(VisionService):
+        def __init__(self):
+            instances.append(self)
+
+        def extract(self, image_bytes: bytes):
+            return ExtractedLabel()
+
+    import app.main as main_module
+
+    get_vision_service.cache_clear()
+    monkeypatch.setattr(main_module, "OpenAIVisionService", FakeOpenAIVisionService)
+
+    first = get_vision_service()
+    second = get_vision_service()
+
+    assert first is second
+    assert instances == [first]
 
 
 def test_verify_returns_needs_review_for_partial_extraction(client):
