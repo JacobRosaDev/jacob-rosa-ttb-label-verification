@@ -13,10 +13,36 @@ This project extracts text from a label image, compares it against user-submitte
 
 ## Live Demo
 
-- **Deployed URL:** _Replace with your live URL_
-- **Health endpoint:** `https://<live-url>/health`
+- **Live app URL:** https://ttb-label-verification-lwrd.onrender.com
+- **Backend base URL:** https://ttb-label-verification-lwrd.onrender.com
+- **Health URL:** https://ttb-label-verification-lwrd.onrender.com/health
+- **Last verified:** July 12, 2026
+- **Deployed vision model:** `gpt-4.1-nano`
 
-> Update this README with the actual deployed URL after deployment.
+## Verified Performance
+
+Final live benchmark results:
+
+- **Measurement timestamp:** `2026-07-12T21:55:45.613944+00:00`
+- **Tested endpoint:** `POST https://ttb-label-verification-lwrd.onrender.com/verify`
+- **Successful measured sample size:** 20
+- **Excluded warm-up requests:** 1
+- **Failed measured requests:** 0
+- **Percentile method:** nearest-rank
+- **p50 latency:** 4,166.5 ms
+- **p95 latency:** 5,683.6 ms
+- **Target:** under 5,000 ms
+- **p50 meets target:** Yes
+- **p95 meets target:** No
+- **Benchmark script:** `backend/scripts/benchmark_live.py`
+
+The p50 latency meets the five-second target. The p95 latency currently exceeds the target by 683.6 ms.
+
+Reproducible benchmark command:
+
+```powershell
+uv run python scripts\benchmark_live.py --base-url https://ttb-label-verification-lwrd.onrender.com --image "<path-to-real-label-image>" --runs 20
+```
 
 ## Local Setup
 
