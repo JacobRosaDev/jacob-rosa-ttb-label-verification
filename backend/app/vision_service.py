@@ -82,7 +82,7 @@ class OpenAIVisionService(VisionService):
     Note: network calls are not used in tests.
     """
 
-    VISION_MODEL = os.environ.get("VISION_MODEL", "gpt-4o-mini")
+    VISION_MODEL = os.environ.get("VISION_MODEL", "gpt-4.1-nano")
     MAX_IMAGE_DIMENSION = int(os.environ.get("MAX_IMAGE_DIMENSION", 900))
     JPEG_QUALITY = int(os.environ.get("JPEG_QUALITY", 80))
     MODEL_TIMEOUT_SECONDS = int(os.environ.get("MODEL_TIMEOUT_SECONDS", 4))
