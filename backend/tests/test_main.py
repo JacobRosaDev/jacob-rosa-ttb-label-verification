@@ -144,6 +144,27 @@ def _base_form_data():
     }
 
 
+@pytest.mark.parametrize(
+    ("filename", "content_type"),
+    [
+        ("label.jpeg", "image/jpeg"),
+        ("label.jpg", "image/jpg"),
+        ("label.png", "image/png"),
+        ("label.webp", "image/webp"),
+    ],
+)
+def test_verify_accepts_allowed_image_types(client, filename, content_type):
+    response = client.post(
+        "/verify",
+        files={"image": (filename, io.BytesIO(b"IMAGEDATA"), content_type)},
+        data=_base_form_data(),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["overall_verdict"] == "APPROVED"
+
+
 def test_verify_returns_approved_with_clear_mock(client):
     file_bytes = b"PNGDATA"
     response = client.post(
@@ -210,11 +231,20 @@ def test_verify_rejects_missing_image(client):
     assert "Image file is required" in payload["message"]
 
 
-def test_verify_rejects_invalid_file_type(client):
+@pytest.mark.parametrize(
+    ("filename", "content_type"),
+    [
+        ("label.txt", "text/plain"),
+        ("label.pdf", "application/pdf"),
+        ("label.gif", "image/gif"),
+        ("label.heic", "image/heic"),
+    ],
+)
+def test_verify_rejects_invalid_file_type(client, filename, content_type):
     file_bytes = b"NOTANIMAGE"
     response = client.post(
         "/verify",
-        files={"image": ("label.txt", io.BytesIO(file_bytes), "text/plain")},
+        files={"image": (filename, io.BytesIO(file_bytes), content_type)},
         data=_base_form_data(),
     )
 
@@ -352,6 +382,51 @@ def _collect_keys(value):
             keys.update(_collect_keys(child))
         return keys
     return set()
+
+
+@pytest.mark.parametrize(
+    ("filename", "content_type"),
+    [
+        ("label.jpeg", "image/jpeg"),
+        ("label.jpg", "image/jpg"),
+        ("label.png", "image/png"),
+        ("label.webp", "image/webp"),
+    ],
+)
+def test_verify_batch_accepts_allowed_image_types(client, filename, content_type):
+    files = [("images", (filename, io.BytesIO(b"IMAGEDATA"), content_type))]
+    meta = json.dumps(_batch_meta_items(1))
+    response = client.post("/verify/batch", files=files, data={"metadata": meta})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["summary"] == {"passed": 1, "needs_review": 0, "total": 1}
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["overall_verdict"] == "APPROVED"
+
+
+@pytest.mark.parametrize(
+    ("filename", "content_type"),
+    [
+        ("label.txt", "text/plain"),
+        ("label.pdf", "application/pdf"),
+        ("label.gif", "image/gif"),
+        ("label.heic", "image/heic"),
+    ],
+)
+def test_verify_batch_rejects_invalid_file_type_as_item_result(client, filename, content_type):
+    files = [("images", (filename, io.BytesIO(b"NOTANIMAGE"), content_type))]
+    meta = json.dumps(_batch_meta_items(1))
+    response = client.post("/verify/batch", files=files, data={"metadata": meta})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["summary"] == {"passed": 0, "needs_review": 1, "total": 1}
+    assert len(payload["items"]) == 1
+    item = payload["items"][0]
+    _assert_verification_result_contract(item)
+    assert item["overall_verdict"] == "NEEDS_REVIEW"
+    assert "Unsupported file type" in item["field_results"][0]["reason"]
 
 
 def test_verify_batch_response_contract_all_pass(client):

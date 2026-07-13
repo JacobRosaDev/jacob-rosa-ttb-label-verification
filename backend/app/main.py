@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 MAX_UPLOAD_SIZE_BYTES = 8 * 1024 * 1024  # 8 MB
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/webp"}
+UNSUPPORTED_IMAGE_TYPE_MESSAGE = "Unsupported file type. Please upload JPEG, PNG, or WEBP."
 MAX_BATCH_SIZE = int(__import__("os").environ.get("MAX_BATCH_SIZE", 8))
 BATCH_CONCURRENCY = int(__import__("os").environ.get("BATCH_CONCURRENCY", 4))
 ITEM_TIMEOUT_MS = int(__import__("os").environ.get("ITEM_TIMEOUT_MS", 3000))
@@ -46,6 +47,10 @@ def _get_startup_vision_service() -> VisionService:
     if override is not None:
         return override()
     return get_vision_service()
+
+
+def _is_allowed_image_type(content_type: str | None) -> bool:
+    return content_type in ALLOWED_IMAGE_TYPES
 
 
 @app.on_event("startup")
@@ -139,10 +144,10 @@ async def verify(
     government_warning: str = Form(...),
     vision_service: VisionService = Depends(get_vision_service),
 ):
-    if image.content_type not in ALLOWED_IMAGE_TYPES:
+    if not _is_allowed_image_type(image.content_type):
         raise HTTPException(
             status_code=400,
-            detail="Unsupported file type. Please upload JPEG, PNG, or WEBP.",
+            detail=UNSUPPORTED_IMAGE_TYPE_MESSAGE,
         )
 
     contents = await image.read()
@@ -281,9 +286,9 @@ async def verify_batch(
             duration = round((perf_counter() - start) * 1000, 3)
             return _batch_failure_result("Missing image.", duration)
 
-        if upload.content_type not in ALLOWED_IMAGE_TYPES:
+        if not _is_allowed_image_type(upload.content_type):
             duration = round((perf_counter() - start) * 1000, 3)
-            return _batch_failure_result("Unsupported file type.", duration)
+            return _batch_failure_result(UNSUPPORTED_IMAGE_TYPE_MESSAGE, duration)
 
         contents = await upload.read()
         if not contents:
