@@ -1,6 +1,6 @@
 # Backend Service
 
-This directory contains the FastAPI backend, static frontend pages, tests, and live smoke/benchmark tooling for the TTB Label Verification proof-of-concept.
+This directory contains the FastAPI backend, tests, and live smoke/benchmark tooling for the TTB Label Verification proof-of-concept. The static frontend lives in the repository-level `frontend/` directory.
 
 The root `README.md` is the canonical project documentation. Use this file as a short backend-specific quick reference.
 

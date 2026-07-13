@@ -123,6 +123,13 @@ def test_startup_validation_runs_once_despite_multiple_health_requests():
     assert fake_client.models.calls == ["startup-test-model"]
 
 
+def test_root_serves_unified_frontend(client):
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "TTB Label Verification" in response.text
+
+
 def _base_form_data():
     return {
         "brand_name": "Ketel One",

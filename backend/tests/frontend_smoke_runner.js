@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 
-const FRONTEND_PATH = path.resolve(__dirname, "..", "frontend", "index.html");
+const FRONTEND_PATH = path.resolve(__dirname, "..", "..", "frontend", "index.html");
 const FIELD_VALUES = {
   brand_name: "Ketel One",
   class_type: "Vodka",

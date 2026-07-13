@@ -46,7 +46,7 @@ Browser or curl
 - Vision extraction: `backend/app/vision_service.py` defines the extraction interface, test mock, and `OpenAIVisionService`.
 - Comparison engine: `backend/app/comparison.py` handles field normalization, fuzzy matching, unit parsing, exact government warning comparison, and final verdict aggregation.
 - `backend/app/models.py`: Pydantic request/response data contracts.
-- `backend/frontend/index.html`: unified single-label and batch upload page.
+- `frontend/index.html`: unified single-label and batch upload page.
 - `backend/scripts/smoke_live.py`: live health, single-label, and batch smoke checks against a deployed service.
 - `backend/scripts/benchmark_live.py`: live single-label performance benchmark against a deployed service.
 
@@ -367,9 +367,8 @@ The smoke test is a single-request deployment gate and fails when that request r
 
 `render.yaml` defines the Render web service:
 
-- `rootDir`: `backend`
-- build command: `pip install --upgrade pip && pip install uv && uv sync --frozen`
-- start command: `uv run --frozen python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- build command: `cd backend && pip install --upgrade pip && pip install uv && uv sync --frozen`
+- start command: `cd backend && uv run --frozen python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 - health check path: `/health`
 - environment variables: `OPENAI_API_KEY` and `VISION_MODEL=gpt-4.1-nano`
 

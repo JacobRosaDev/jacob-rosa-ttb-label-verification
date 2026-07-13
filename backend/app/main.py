@@ -398,5 +398,5 @@ async def verify_batch(
     )
 
 
-frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
+frontend_dir = Path(__file__).resolve().parents[2] / "frontend"
 app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
