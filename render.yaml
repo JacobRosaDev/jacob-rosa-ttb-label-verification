@@ -10,3 +10,5 @@ services:
         sync: false
       - key: VISION_MODEL
         value: gpt-4.1-nano
+      - key: ITEM_TIMEOUT_MS
+        value: "8000"

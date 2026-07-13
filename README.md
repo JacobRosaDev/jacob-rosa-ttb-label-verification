@@ -75,7 +75,7 @@ Browser or curl
 | `MODEL_TIMEOUT_SECONDS` | No | `4` | OpenAI client timeout. |
 | `MAX_BATCH_SIZE` | No | `8` | Maximum batch item count accepted by `/verify/batch`. |
 | `BATCH_CONCURRENCY` | No | `4` | Maximum concurrent extraction jobs inside a batch request. |
-| `ITEM_TIMEOUT_MS` | No | `3000` | Per-item extraction timeout for batch requests. |
+| `ITEM_TIMEOUT_MS` | No | `8000` | Per-item extraction timeout for batch requests. |
 | `VERIFY_TIMEOUT_MS` | No | `4500` | Extraction timeout for single-label requests. |
 
 `PORT` is supplied by Render to the start command. The application code does not read `PORT` directly.
