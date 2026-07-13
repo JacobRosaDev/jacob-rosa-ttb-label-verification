@@ -9,6 +9,7 @@ from pathlib import Path
 
 from benchmark_live import (
     FIELD_RESULT_KEYS,
+    FIVE_SECONDS_MS,
     REQUIRED_METADATA_FIELDS,
     VERIFY_PATH,
     RequestFailure,
@@ -27,6 +28,7 @@ HEALTH_PATH = "/health"
 BATCH_PATH = "/verify/batch"
 BATCH_RESULT_KEYS = {"items", "summary"}
 BATCH_SUMMARY_KEYS = {"passed", "needs_review", "total"}
+EXPECTED_VERIFY_FIELDS = REQUIRED_METADATA_FIELDS
 
 
 def parse_args() -> argparse.Namespace:
@@ -92,6 +94,42 @@ def validate_batch_result(payload: object) -> None:
         for field_result in item["field_results"]:
             if set(field_result) != FIELD_RESULT_KEYS:
                 raise RequestFailure("Batch field result did not match the expected contract.")
+
+
+def validate_smoke_verification_result(payload: object) -> None:
+    validate_verification_result(payload)
+
+    field_results = payload["field_results"]
+    if not field_results:
+        raise RequestFailure("Verification field_results must include all seven label fields.")
+
+    fields = [field_result["field"] for field_result in field_results]
+    unique_fields = set(fields)
+    if len(fields) != len(unique_fields):
+        duplicates = sorted({field for field in fields if fields.count(field) > 1})
+        raise RequestFailure(
+            "Verification field_results contained duplicate fields: "
+            + ", ".join(duplicates)
+        )
+
+    if unique_fields != EXPECTED_VERIFY_FIELDS:
+        missing = sorted(EXPECTED_VERIFY_FIELDS - unique_fields)
+        unexpected = sorted(unique_fields - EXPECTED_VERIFY_FIELDS)
+        details = []
+        if missing:
+            details.append(f"missing fields: {', '.join(missing)}")
+        if unexpected:
+            details.append(f"unexpected fields: {', '.join(unexpected)}")
+        raise RequestFailure(
+            "Verification field_results must contain exactly the seven label fields; "
+            + "; ".join(details)
+        )
+
+    latency_ms = payload["latency_ms"]
+    if isinstance(latency_ms, bool) or not isinstance(latency_ms, (int, float)):
+        raise RequestFailure("Verification latency_ms was missing or invalid.")
+    if latency_ms >= FIVE_SECONDS_MS:
+        raise RequestFailure("Verification latency_ms must be less than 5000 ms.")
 
 
 def batch_multipart_body(
@@ -164,7 +202,7 @@ def main() -> int:
             timeout_seconds=args.timeout_seconds,
             user_agent="ttb-label-verification-smoke/1.0",
         )
-        validate_verification_result(payload)
+        validate_smoke_verification_result(payload)
 
     def check_batch() -> None:
         payload = send_request(

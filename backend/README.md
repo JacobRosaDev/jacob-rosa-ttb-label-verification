@@ -56,10 +56,14 @@ Run live smoke checks only when you have a real local label image and a matching
 uv run python scripts\smoke_live.py --base-url https://ttb-label-verification-lwrd.onrender.com --image "C:\labels\label.png" --metadata-file "C:\labels\metadata.json"
 ```
 
+Required smoke arguments are `--base-url`, `--image`, and `--metadata-file`; `--timeout-seconds` is optional. The metadata JSON must contain exactly `brand_name`, `class_type`, `producer`, `country_of_origin`, `abv`, `net_contents`, and `government_warning`.
+
+The smoke script checks `/health`, `/verify`, and `/verify/batch`. The single `/verify` smoke check fails unless the response includes all seven field results exactly once and reports `latency_ms` strictly under 5,000 ms.
+
 Run the live single-label benchmark with the same kind of matching image and metadata:
 
 ```powershell
 uv run python scripts\benchmark_live.py --base-url https://ttb-label-verification-lwrd.onrender.com --image "C:\labels\label.png" --metadata-file "C:\labels\metadata.json" --runs 20
 ```
 
-Latest verified live benchmark facts are recorded in the root `README.md`.
+The benchmark is different from smoke: it reports multi-run latency results, and successful requests over 5 seconds may continue to be reported rather than rejected solely for that latency. Latest verified live benchmark facts are recorded in the root `README.md`.

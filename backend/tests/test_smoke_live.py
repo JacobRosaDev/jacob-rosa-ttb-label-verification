@@ -53,21 +53,33 @@ def write_sample_files(tmp_path, metadata):
     return image_path, metadata_path
 
 
-def verification_payload():
+def _field_result(field):
     return {
-        "overall_verdict": "NEEDS_REVIEW",
-        "field_results": [
-            {
-                "field": "brand_name",
-                "match_type": "fuzzy",
-                "expected": "Ketel One",
-                "found": "Different",
-                "status": "FAIL",
-                "reason": "mismatch",
-            }
-        ],
+        "field": field,
+        "match_type": "fuzzy" if field in {"brand_name", "class_type", "producer"} else "exact",
+        "expected": "expected",
+        "found": "found",
+        "status": "PASS",
+        "reason": "match",
+    }
+
+
+def verification_payload(*, fields=None, latency_ms=12.5, overall_verdict="NEEDS_REVIEW"):
+    if fields is None:
+        fields = [
+            "brand_name",
+            "class_type",
+            "producer",
+            "country_of_origin",
+            "abv",
+            "net_contents",
+            "government_warning",
+        ]
+    return {
+        "overall_verdict": overall_verdict,
+        "field_results": [_field_result(field) for field in fields],
         "timestamp": "2026-07-12T00:00:00+00:00",
-        "latency_ms": 12.5,
+        "latency_ms": latency_ms,
     }
 
 
@@ -82,13 +94,16 @@ def test_smoke_main_prints_pass_for_all_checks(tmp_path, monkeypatch, capsys, mo
     _, smoke = modules
     image_path, metadata_path = write_sample_files(tmp_path, metadata)
     requested_urls = []
+    verify_body_seen = None
 
     def fake_send_request(url, body, content_type, *, method, timeout_seconds, user_agent):
+        nonlocal verify_body_seen
         requested_urls.append((url, method, timeout_seconds))
         if url.endswith("/health"):
             return {"status": "ok", "ts": "2026-07-12T00:00:00+00:00"}
         if url.endswith("/verify/batch"):
             return batch_payload()
+        verify_body_seen = body
         return verification_payload()
 
     monkeypatch.setattr(smoke, "send_request", fake_send_request)
@@ -114,6 +129,10 @@ def test_smoke_main_prints_pass_for_all_checks(tmp_path, monkeypatch, capsys, mo
         ("https://example.test/verify", "POST", 9),
         ("https://example.test/verify/batch", "POST", 9),
     ]
+    assert b'name="image"; filename="label.png"' in verify_body_seen
+    for field, value in metadata.items():
+        assert f'name="{field}"'.encode("ascii") in verify_body_seen
+        assert str(value).encode("utf-8") in verify_body_seen
 
     output = capsys.readouterr().out
     assert "PASS GET /health" in output
@@ -170,6 +189,92 @@ def test_batch_multipart_body_uses_metadata_array_and_images_field(modules, meta
     assert b'name="metadata"' in body
     assert b'"brand_name": "Ketel One"' in body
     assert b'name="images"; filename="label.png"' in body
+
+
+def test_validate_smoke_verification_result_accepts_valid_seven_field_response(modules):
+    _, smoke = modules
+
+    smoke.validate_smoke_verification_result(verification_payload())
+
+
+def test_validate_smoke_verification_result_rejects_empty_field_results(modules):
+    benchmark, smoke = modules
+    payload = verification_payload(fields=[])
+
+    with pytest.raises(benchmark.RequestFailure, match="all seven label fields"):
+        smoke.validate_smoke_verification_result(payload)
+
+
+def test_validate_smoke_verification_result_rejects_missing_field(modules):
+    benchmark, smoke = modules
+    payload = verification_payload(fields=[
+        "brand_name",
+        "class_type",
+        "country_of_origin",
+        "abv",
+        "net_contents",
+        "government_warning",
+    ])
+
+    with pytest.raises(benchmark.RequestFailure, match="missing fields: producer"):
+        smoke.validate_smoke_verification_result(payload)
+
+
+def test_validate_smoke_verification_result_rejects_duplicate_field(modules):
+    benchmark, smoke = modules
+    payload = verification_payload(fields=[
+        "brand_name",
+        "brand_name",
+        "class_type",
+        "producer",
+        "country_of_origin",
+        "abv",
+        "net_contents",
+        "government_warning",
+    ])
+
+    with pytest.raises(benchmark.RequestFailure, match="duplicate fields: brand_name"):
+        smoke.validate_smoke_verification_result(payload)
+
+
+def test_validate_smoke_verification_result_rejects_unexpected_field(modules):
+    benchmark, smoke = modules
+    payload = verification_payload(fields=[
+        "brand_name",
+        "class_type",
+        "producer",
+        "country_of_origin",
+        "abv",
+        "net_contents",
+        "unexpected",
+    ])
+
+    with pytest.raises(benchmark.RequestFailure, match="unexpected fields: unexpected"):
+        smoke.validate_smoke_verification_result(payload)
+
+
+def test_validate_smoke_verification_result_rejects_latency_equal_to_5000(modules):
+    benchmark, smoke = modules
+    payload = verification_payload(latency_ms=5000)
+
+    with pytest.raises(benchmark.RequestFailure, match="less than 5000 ms"):
+        smoke.validate_smoke_verification_result(payload)
+
+
+def test_validate_smoke_verification_result_rejects_latency_above_5000(modules):
+    benchmark, smoke = modules
+    payload = verification_payload(latency_ms=5000.1)
+
+    with pytest.raises(benchmark.RequestFailure, match="less than 5000 ms"):
+        smoke.validate_smoke_verification_result(payload)
+
+
+def test_validate_smoke_verification_result_rejects_invalid_verdict(modules):
+    benchmark, smoke = modules
+    payload = verification_payload(overall_verdict="BROKEN")
+
+    with pytest.raises(benchmark.RequestFailure, match="unknown overall_verdict"):
+        smoke.validate_smoke_verification_result(payload)
 
 
 def test_validate_health_rejects_contract_change(modules):

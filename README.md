@@ -345,7 +345,25 @@ cd backend
 uv run python scripts\smoke_live.py --base-url https://ttb-label-verification-lwrd.onrender.com --image "C:\labels\label.png" --metadata-file "C:\labels\metadata.json"
 ```
 
-The chosen image must match the metadata submitted in the JSON file.
+Required arguments:
+
+- `--base-url`: deployed API base URL.
+- `--image`: real local JPEG, PNG, or WEBP label image.
+- `--metadata-file`: JSON object with exactly the seven submitted label fields.
+
+The metadata JSON must contain exactly:
+
+- `brand_name`
+- `class_type`
+- `producer`
+- `country_of_origin`
+- `abv`
+- `net_contents`
+- `government_warning`
+
+The chosen image must match the metadata submitted in the JSON file. The smoke script checks `GET /health`, `POST /verify`, and `POST /verify/batch`. For the single `/verify` request, it also requires a valid verdict, all seven field results exactly once, and `latency_ms` strictly under 5,000 ms.
+
+The smoke test is a single-request deployment gate and fails when that request reports `latency_ms >= 5000`. The benchmark script remains a multi-run reporting tool: it reports successful requests over 5 seconds instead of rejecting the whole benchmark solely for those latencies.
 
 ## Deployment
 
