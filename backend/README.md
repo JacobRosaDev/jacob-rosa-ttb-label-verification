@@ -24,7 +24,7 @@ $env:OPENAI_API_KEY = "your-api-key-here"
 uv run python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Open `http://127.0.0.1:8000/`, `http://127.0.0.1:8000/batch.html`, or `http://127.0.0.1:8000/health`.
+Open `http://127.0.0.1:8000/` for single-label or batch verification, or `http://127.0.0.1:8000/health`.
 
 ## Backend Variables
 

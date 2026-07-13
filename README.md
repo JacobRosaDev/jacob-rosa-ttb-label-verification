@@ -46,8 +46,7 @@ Browser or curl
 - Vision extraction: `backend/app/vision_service.py` defines the extraction interface, test mock, and `OpenAIVisionService`.
 - Comparison engine: `backend/app/comparison.py` handles field normalization, fuzzy matching, unit parsing, exact government warning comparison, and final verdict aggregation.
 - `backend/app/models.py`: Pydantic request/response data contracts.
-- `backend/frontend/index.html`: single-label upload page.
-- `backend/frontend/batch.html`: batch upload page.
+- `backend/frontend/index.html`: unified single-label and batch upload page.
 - `backend/scripts/smoke_live.py`: live health, single-label, and batch smoke checks against a deployed service.
 - `backend/scripts/benchmark_live.py`: live single-label performance benchmark against a deployed service.
 
@@ -113,8 +112,7 @@ uv run python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 Open:
 
-- Single-label verification: `http://127.0.0.1:8000/`
-- Batch verification: `http://127.0.0.1:8000/batch.html`
+- Single-label and batch verification: `http://127.0.0.1:8000/`
 - Health check: `http://127.0.0.1:8000/health`
 
 ## API Endpoints

@@ -7,9 +7,13 @@
   <style>
     :root {
       color-scheme: light;
-      font-family: 'Segoe UI', Arial, sans-serif;
+      font-family: "Segoe UI", Arial, sans-serif;
       background: #f5f7fb;
       color: #111;
+    }
+
+    * {
+      box-sizing: border-box;
     }
 
     body {
@@ -19,43 +23,102 @@
       justify-content: center;
       align-items: flex-start;
       padding: 1.5rem;
+      background: #f5f7fb;
     }
 
     .page {
-      width: min(100%, 780px);
+      width: min(100%, 960px);
+    }
+
+    h1,
+    h2,
+    p {
+      margin-top: 0;
     }
 
     h1 {
       font-size: clamp(2rem, 4vw, 2.5rem);
-      margin: 0;
+      margin-bottom: 0.5rem;
+    }
+
+    h2 {
+      font-size: 1.25rem;
+      margin-bottom: 0;
     }
 
     p.subtitle {
-      margin: 0.5rem 0 1.5rem;
+      margin-bottom: 1.5rem;
       font-size: 1.05rem;
       line-height: 1.5;
-      max-width: 42rem;
+      max-width: 44rem;
+      color: #303849;
+    }
+
+    .panel,
+    .label-card,
+    .result-card {
+      background: white;
+      border: 1px solid #d7dce7;
+      border-radius: 8px;
+      box-shadow: 0 18px 60px rgba(20, 30, 80, 0.08);
     }
 
     .panel {
-      background: white;
-      border: 1px solid #d7dce7;
-      border-radius: 18px;
-      box-shadow: 0 18px 60px rgba(20, 30, 80, 0.08);
       padding: 1.5rem;
       margin-bottom: 1.5rem;
     }
 
+    .label-card {
+      padding: 1.25rem;
+      margin-bottom: 1rem;
+      box-shadow: none;
+    }
+
+    .label-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1rem;
+      padding-bottom: 0.85rem;
+      border-bottom: 1px solid #e5e9f2;
+    }
+
+    .label-card-title {
+      display: grid;
+      gap: 0.2rem;
+    }
+
+    .label-card-title span {
+      color: #4b5768;
+      font-size: 0.95rem;
+    }
+
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1rem;
+    }
+
     .field-group {
       display: grid;
-      gap: 1rem;
-      margin-bottom: 1.25rem;
+      gap: 0.45rem;
+      margin-bottom: 1rem;
+    }
+
+    .field-group.full {
+      grid-column: 1 / -1;
+    }
+
+    .net-contents-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 8.5rem;
+      gap: 0.75rem;
     }
 
     label {
       display: block;
       font-weight: 700;
-      margin-bottom: 0.5rem;
       font-size: 1rem;
     }
 
@@ -64,8 +127,8 @@
     select {
       width: 100%;
       border: 2px solid #ccd3e0;
-      border-radius: 14px;
-      padding: 0.95rem 1rem;
+      border-radius: 8px;
+      padding: 0.9rem 1rem;
       font-size: 1rem;
       line-height: 1.4;
       background: #fbfcff;
@@ -75,6 +138,7 @@
 
     input:focus,
     textarea:focus,
+    select:focus,
     button:focus {
       outline: none;
       border-color: #0f6fff;
@@ -89,51 +153,48 @@
     .helper {
       font-size: 0.95rem;
       color: #4b5768;
-      margin-top: 0.35rem;
       line-height: 1.45;
     }
 
     .image-picker {
       border: 2px dashed #8b97af;
-      border-radius: 18px;
+      border-radius: 8px;
       background: #f4f6fb;
-      padding: 1.5rem;
+      padding: 1.35rem;
       text-align: center;
       cursor: pointer;
       transition: border-color 0.2s ease, background 0.2s ease;
-      margin-bottom: 1rem;
     }
 
     .image-picker:hover,
-    .image-picker:focus-visible {
+    .image-picker:focus-visible,
+    .image-picker.dragging {
       border-color: #0f6fff;
       background: #edf3ff;
     }
 
     .image-picker strong {
       display: block;
-      font-size: 1.1rem;
-      margin-bottom: 0.5rem;
+      font-size: 1.05rem;
+      margin-bottom: 0.4rem;
     }
 
-    .image-details {
-      margin-top: 0.75rem;
-      font-size: 0.98rem;
-      color: #2a3246;
+    .image-input {
+      display: none;
     }
 
     .preview {
       display: grid;
       gap: 0.75rem;
-      margin-bottom: 1rem;
     }
 
     .preview img {
-      max-width: 100%;
-      border-radius: 16px;
+      width: 100%;
+      max-height: 280px;
+      border-radius: 8px;
       border: 1px solid #d7dce7;
       object-fit: contain;
-      max-height: 280px;
+      background: #f8fafc;
     }
 
     .preview-meta {
@@ -146,60 +207,84 @@
       color: #2a3246;
     }
 
-    .preview-meta button {
-      border: 1px solid #ccd3e0;
-      background: white;
-      color: #111;
-      padding: 0.7rem 0.95rem;
-      border-radius: 12px;
-      cursor: pointer;
-      font-size: 0.95rem;
-    }
-
-    .preview-meta button:hover {
-      background: #f4f6fb;
+    .actions-row,
+    .submit-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
     }
 
     .submit-row {
-      display: grid;
-      gap: 0.75rem;
-      align-items: center;
-      margin-top: 0.25rem;
+      margin-top: 1rem;
     }
 
-    button.submit {
-      width: 100%;
-      border: none;
-      border-radius: 16px;
-      padding: 1rem 1.25rem;
-      font-size: 1.1rem;
+    button {
+      border: 1px solid transparent;
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+      font-size: 1rem;
       font-weight: 700;
-      color: white;
-      background: #0f6fff;
       cursor: pointer;
       transition: transform 0.15s ease, background 0.2s ease;
     }
 
-    button.submit:hover:not(:disabled) {
+    button:hover:not(:disabled) {
       transform: translateY(-1px);
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .primary-button {
+      background: #0f6fff;
+      color: white;
+    }
+
+    .primary-button:hover:not(:disabled) {
       background: #0955e0;
     }
 
-    button.submit:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
+    .secondary-button {
+      background: white;
+      color: #0f3f9f;
+      border-color: #b8c6df;
+    }
+
+    .secondary-button:hover:not(:disabled) {
+      background: #f4f6fb;
+    }
+
+    .remove-card,
+    .remove-image {
+      background: white;
+      color: #861818;
+      border-color: #efc2c2;
+      padding: 0.7rem 0.9rem;
+    }
+
+    .remove-card:hover:not(:disabled),
+    .remove-image:hover:not(:disabled) {
+      background: #fff1f1;
     }
 
     .status {
       font-size: 1rem;
       font-weight: 700;
-      margin-top: 0.5rem;
       color: #0f6fff;
+    }
+
+    .cold-start-note {
+      flex-basis: 100%;
+      color: #4b5768;
+      font-size: 0.98rem;
+      line-height: 1.45;
     }
 
     .error-card,
     .result-card {
-      border-radius: 18px;
       padding: 1.2rem 1.3rem;
       margin-bottom: 1.25rem;
     }
@@ -208,11 +293,25 @@
       background: #ffecec;
       border: 1px solid #ffb3b3;
       color: #861818;
+      box-shadow: none;
     }
 
-    .result-card {
-      background: #ffffff;
-      border: 1px solid #dae0eb;
+    .results-summary {
+      color: #4b5768;
+      font-size: 0.98rem;
+      margin-bottom: 1rem;
+    }
+
+    .result-item {
+      border-top: 1px solid #e5e9f2;
+      padding-top: 1.1rem;
+      margin-top: 1.1rem;
+    }
+
+    .result-item:first-child {
+      border-top: 0;
+      padding-top: 0;
+      margin-top: 0;
     }
 
     .verdict {
@@ -222,12 +321,10 @@
       justify-content: space-between;
       flex-wrap: wrap;
       margin-bottom: 1rem;
-      padding-bottom: 1rem;
-      border-bottom: 1px solid #e5e9f2;
     }
 
     .verdict-heading {
-      font-size: 1.4rem;
+      font-size: 1.35rem;
       font-weight: 800;
       letter-spacing: 0.02em;
     }
@@ -249,7 +346,7 @@
     .field-result {
       margin-top: 1rem;
       padding: 1rem;
-      border-radius: 14px;
+      border-radius: 8px;
       border: 1px solid #edf1f8;
       background: #fbfdff;
     }
@@ -317,7 +414,7 @@
     .field-value-raw {
       padding: 0.75rem 1rem;
       background: rgba(15, 111, 255, 0.05);
-      border-radius: 12px;
+      border-radius: 8px;
       overflow-wrap: anywhere;
     }
 
@@ -325,91 +422,164 @@
       background: rgba(199, 41, 63, 0.08);
     }
 
-    @media (max-width: 640px) {
+    @media (max-width: 720px) {
       body {
+        padding: 0.75rem;
+      }
+
+      .panel,
+      .label-card,
+      .result-card,
+      .error-card {
         padding: 1rem;
+      }
+
+      .card-grid,
+      .net-contents-row {
+        grid-template-columns: 1fr;
+      }
+
+      .label-card-header,
+      .actions-row,
+      .submit-row,
+      .verdict,
+      .preview-meta {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      button,
+      .submit-row .primary-button,
+      .submit-row .secondary-button {
+        width: 100%;
       }
     }
   </style>
 </head>
 <body>
   <main class="page">
-    <div class="panel">
+    <section class="panel">
       <header>
         <h1>TTB Label Verification</h1>
-        <p class="subtitle">Upload one label image, enter the seven required fields, and press Verify. The result will show whether each field passed, and if not, what was expected versus what was found.</p>
+        <p class="subtitle">Upload one or more label images, enter the seven required fields for each label, and press Verify.</p>
       </header>
 
       <div id="error" class="error-card" role="alert" aria-live="assertive" style="display:none;"></div>
 
       <form id="verification-form">
-        <div class="field-group">
-          <label for="image-upload">Label image</label>
-          <div id="image-picker" class="image-picker" role="button" aria-label="Select or drop a label image" tabindex="0">
-            <strong>Select or drop one image</strong>
-            <span id="image-picker-help">JPEG, PNG, or WEBP. Under 8 MB.</span>
-          </div>
-          <input id="image-upload" name="image" type="file" accept="image/jpeg,image/jpg,image/png,image/webp" style="display:none;" required />
-          <div id="image-preview" class="preview" style="display:none;"></div>
+        <div id="cards" aria-live="polite"></div>
+
+        <div class="actions-row">
+          <button id="add-card" class="secondary-button" type="button">Add another label</button>
         </div>
 
-        <div class="field-group">
-          <label for="brand-name">Brand name</label>
-          <input id="brand-name" name="brand_name" type="text" placeholder="e.g. Ketel One" autocomplete="off" required />
-        </div>
-
-        <div class="field-group">
-          <label for="class-type">Spirit class</label>
-          <input id="class-type" name="class_type" type="text" placeholder="e.g. Vodka" autocomplete="off" required />
-        </div>
-
-        <div class="field-group">
-          <label for="producer">Producer or distillery</label>
-          <input id="producer" name="producer" type="text" placeholder="e.g. Nolet Distillery" autocomplete="off" required />
-        </div>
-
-        <div class="field-group">
-          <label for="country-of-origin">Country of origin</label>
-          <input id="country-of-origin" name="country_of_origin" type="text" placeholder="e.g. USA" autocomplete="off" required />
-        </div>
-
-        <div class="field-group">
-          <label for="abv">Alcohol by volume (ABV)</label>
-          <input id="abv" name="abv" type="number" min="0" max="100" step="0.1" placeholder="e.g. 40" autocomplete="off" aria-describedby="abv-helper" required />
-          <p id="abv-helper" class="helper">Enter the ABV value as a number. Example: 40</p>
-        </div>
-
-        <div class="field-group">
-          <label for="net-contents">Bottle size / volume</label>
-          <input id="net-contents" name="net_contents" type="text" placeholder="e.g. 750 mL" autocomplete="off" aria-describedby="net-contents-helper" required />
-          <p id="net-contents-helper" class="helper">Use the bottle size printed on the label.</p>
-        </div>
-
-        <div class="field-group">
-          <label for="government-warning">Government warning</label>
-          <textarea id="government-warning" name="government_warning" placeholder="Paste the full warning text exactly as shown." aria-describedby="government-warning-helper" required></textarea>
-          <p id="government-warning-helper" class="helper">This must match the exact warning text. Case matters.</p>
         <div class="submit-row">
-          <button class="submit" type="submit">Verify label</button>
+          <button id="submit-button" class="primary-button" type="submit">Verify label</button>
           <div id="status" class="status" aria-live="polite"></div>
+          <div id="cold-start-note" class="cold-start-note" aria-live="polite" style="display:none;">
+            This first request can take up to 30 seconds while the free host wakes up.
+          </div>
         </div>
       </form>
-    </div>
+    </section>
 
-    <div id="results" class="result-card" aria-live="polite" style="display:none;"></div>
+    <section id="results" class="result-card" aria-live="polite" style="display:none;"></section>
   </main>
 
+  <template id="label-card-template">
+    <section class="label-card" data-card>
+      <div class="label-card-header">
+        <div class="label-card-title">
+          <h2 data-card-title>Label</h2>
+          <span data-card-mode>Single verification</span>
+        </div>
+        <button class="remove-card" type="button" data-remove-card>Remove label</button>
+      </div>
+
+      <div class="field-group full">
+        <label data-label-for="image">Label image</label>
+        <div class="image-picker" role="button" tabindex="0" aria-label="Select or drop a label image" data-image-picker>
+          <strong>Select or drop one image</strong>
+          <span>Choose an image file. Under 8 MB.</span>
+        </div>
+        <input class="image-input" name="image" type="file" accept="image/*" data-field="image" />
+        <div class="preview" style="display:none;" data-image-preview></div>
+      </div>
+
+      <div class="card-grid">
+        <div class="field-group">
+          <label data-label-for="brand_name">Brand name</label>
+          <input name="brand_name" type="text" placeholder="e.g. Ketel One" autocomplete="off" required data-field="brand_name" />
+        </div>
+
+        <div class="field-group">
+          <label data-label-for="class_type">Spirit class</label>
+          <input name="class_type" type="text" placeholder="e.g. Vodka" autocomplete="off" required data-field="class_type" />
+        </div>
+
+        <div class="field-group">
+          <label data-label-for="producer">Producer or distillery</label>
+          <input name="producer" type="text" placeholder="e.g. Nolet Distillery" autocomplete="off" required data-field="producer" />
+        </div>
+
+        <div class="field-group">
+          <label data-label-for="country_of_origin">Country of origin</label>
+          <input name="country_of_origin" type="text" placeholder="e.g. USA" autocomplete="off" required data-field="country_of_origin" />
+        </div>
+
+        <div class="field-group">
+          <label data-label-for="abv">Alcohol by volume (ABV)</label>
+          <input name="abv" type="number" min="0" max="100" step="0.1" placeholder="e.g. 40" autocomplete="off" required data-field="abv" />
+          <span class="helper">Enter the ABV value as a number.</span>
+        </div>
+
+        <div class="field-group">
+          <label data-label-for="net_contents_amount">Bottle size / volume</label>
+          <div class="net-contents-row">
+            <input name="net_contents_amount" type="number" min="0" step="0.01" placeholder="e.g. 750" autocomplete="off" required data-field="net_contents_amount" />
+            <select name="net_contents_unit" required data-field="net_contents_unit">
+              <option value="mL">mL</option>
+              <option value="L">L</option>
+              <option value="FL OZ">FL OZ</option>
+            </select>
+          </div>
+          <span class="helper">Use the bottle size printed on the label.</span>
+        </div>
+
+        <div class="field-group full">
+          <label data-label-for="government_warning">Government warning</label>
+          <textarea name="government_warning" placeholder="Paste the full warning text exactly as shown." required data-field="government_warning"></textarea>
+          <span class="helper">This must match the exact warning text. Case matters.</span>
+        </div>
+      </div>
+    </section>
+  </template>
+
   <script>
+    const MAX_BATCH = 8;
+    const COLD_START_DELAY_MS = 3000;
+    const METADATA_FIELDS = [
+      'brand_name',
+      'class_type',
+      'producer',
+      'country_of_origin',
+      'abv',
+      'net_contents',
+      'government_warning',
+    ];
+
     const form = document.getElementById('verification-form');
-    const imageUpload = document.getElementById('image-upload');
-    const imagePicker = document.getElementById('image-picker');
-    const imagePreview = document.getElementById('image-preview');
+    const cardsEl = document.getElementById('cards');
+    const template = document.getElementById('label-card-template');
+    const addCardButton = document.getElementById('add-card');
+    const submitButton = document.getElementById('submit-button');
     const errorCard = document.getElementById('error');
     const resultsCard = document.getElementById('results');
     const statusText = document.getElementById('status');
-    const submitButton = document.querySelector('button.submit');
+    const coldStartNote = document.getElementById('cold-start-note');
 
-    let selectedFile = null;
+    let cardCounter = 0;
+    let coldStartTimer = null;
 
     function setError(message) {
       if (!message) {
@@ -425,90 +595,274 @@
       statusText.textContent = message || '';
     }
 
+    function setColdStartNote(show) {
+      coldStartNote.style.display = show ? 'block' : 'none';
+    }
+
+    function updateSubmitText() {
+      const count = getCards().length;
+      submitButton.textContent = count === 1 ? 'Verify label' : `Verify ${count} labels`;
+    }
+
+    function updateCardControls() {
+      const cards = getCards();
+      cards.forEach((card, index) => {
+        card.querySelector('[data-card-title]').textContent = `Label ${index + 1}`;
+        card.querySelector('[data-card-mode]').textContent = cards.length === 1 ? 'Single verification' : 'Batch verification';
+        card.querySelector('[data-remove-card]').disabled = cards.length === 1;
+      });
+      addCardButton.disabled = cards.length >= MAX_BATCH;
+      updateSubmitText();
+    }
+
     function setLoading(isLoading) {
-      const formElements = Array.from(form.elements);
-      formElements.forEach((element) => element.disabled = isLoading);
+      Array.from(form.elements).forEach((element) => {
+        element.disabled = isLoading;
+      });
+      addCardButton.disabled = isLoading || getCards().length >= MAX_BATCH;
       submitButton.disabled = isLoading;
+
       if (isLoading) {
-        setStatus('Verifying label…');
-        submitButton.textContent = 'Verifying…';
+        setStatus('Verifying label...');
+        submitButton.textContent = 'Verifying...';
+        coldStartTimer = setTimeout(() => setColdStartNote(true), COLD_START_DELAY_MS);
       } else {
         setStatus('');
-        submitButton.textContent = 'Verify label';
+        setColdStartNote(false);
+        if (coldStartTimer) {
+          clearTimeout(coldStartTimer);
+          coldStartTimer = null;
+        }
+        updateCardControls();
       }
     }
 
-    function updatePreview(file) {
+    function getCards() {
+      return Array.from(cardsEl.querySelectorAll('[data-card]'));
+    }
+
+    function field(card, name) {
+      return card.querySelector(`[data-field="${name}"]`);
+    }
+
+    function setupFieldIds(card, cardId) {
+      card.querySelectorAll('[data-field]').forEach((input) => {
+        const fieldName = input.dataset.field;
+        const id = `${fieldName}-${cardId}`;
+        input.id = id;
+        const label = card.querySelector(`[data-label-for="${fieldName}"]`);
+        if (label) {
+          label.setAttribute('for', id);
+        }
+      });
+    }
+
+    function setImagePreview(card, file) {
+      const preview = card.querySelector('[data-image-preview]');
       if (!file) {
-        imagePreview.style.display = 'none';
-        imagePreview.innerHTML = '';
+        preview.style.display = 'none';
+        preview.innerHTML = '';
         return;
       }
 
       const url = URL.createObjectURL(file);
-      imagePreview.innerHTML = `
+      preview.innerHTML = `
         <img src="${url}" alt="Selected label preview" />
         <div class="preview-meta">
-          <span>${file.name}</span>
+          <span>${escapeHtml(file.name)}</span>
           <span>${(file.size / 1024 / 1024).toFixed(2)} MB</span>
-          <button type="button" id="clear-image">Remove image</button>
+          <button class="remove-image" type="button" data-remove-image>Remove image</button>
         </div>
       `;
-      imagePreview.style.display = 'grid';
-      document.getElementById('clear-image').addEventListener('click', () => {
-        selectedFile = null;
-        imageUpload.value = '';
-        updatePreview(null);
+      preview.style.display = 'grid';
+      preview.querySelector('[data-remove-image]').addEventListener('click', () => {
+        field(card, 'image').value = '';
+        setImagePreview(card, null);
       });
     }
 
-    function getFormData() {
-      const formData = new FormData(form);
-      if (selectedFile) {
-        formData.set('image', selectedFile);
+    function setupImagePicker(card) {
+      const picker = card.querySelector('[data-image-picker]');
+      const input = field(card, 'image');
+
+      picker.addEventListener('click', () => input.click());
+      picker.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          input.click();
+        }
+      });
+      picker.addEventListener('dragover', (event) => {
+        event.preventDefault();
+        picker.classList.add('dragging');
+      });
+      picker.addEventListener('dragleave', () => {
+        picker.classList.remove('dragging');
+      });
+      picker.addEventListener('drop', (event) => {
+        event.preventDefault();
+        picker.classList.remove('dragging');
+        const file = event.dataTransfer.files[0];
+        if (file) {
+          input.files = event.dataTransfer.files;
+          setImagePreview(card, file);
+        }
+      });
+      input.addEventListener('change', () => {
+        setImagePreview(card, input.files[0] || null);
+      });
+    }
+
+    function addCard() {
+      if (getCards().length >= MAX_BATCH) {
+        return;
       }
+
+      cardCounter += 1;
+      const node = template.content.cloneNode(true);
+      const card = node.querySelector('[data-card]');
+      setupFieldIds(card, cardCounter);
+      setupImagePicker(card);
+      card.querySelector('[data-remove-card]').addEventListener('click', () => {
+        if (getCards().length <= 1) {
+          return;
+        }
+        card.remove();
+        updateCardControls();
+      });
+      cardsEl.appendChild(node);
+      updateCardControls();
+    }
+
+    function composeNetContents(card) {
+      const amount = field(card, 'net_contents_amount').value.trim();
+      const unit = field(card, 'net_contents_unit').value;
+      return `${amount} ${unit}`.trim();
+    }
+
+    function collectCards() {
+      return getCards().map((card) => {
+        const imageInput = field(card, 'image');
+        const metadata = {
+          brand_name: field(card, 'brand_name').value,
+          class_type: field(card, 'class_type').value,
+          producer: field(card, 'producer').value,
+          country_of_origin: field(card, 'country_of_origin').value,
+          abv: field(card, 'abv').value,
+          net_contents: composeNetContents(card),
+          government_warning: field(card, 'government_warning').value,
+        };
+        return {
+          card,
+          image: imageInput.files[0] || null,
+          metadata,
+        };
+      });
+    }
+
+    function validateCards(items) {
+      for (let i = 0; i < items.length; i += 1) {
+        if (!items[i].image) {
+          return `Please select an image for Label ${i + 1}.`;
+        }
+      }
+      return '';
+    }
+
+    function buildSinglePayload(item) {
+      const formData = new FormData();
+      formData.append('image', item.image);
+      METADATA_FIELDS.forEach((name) => {
+        formData.append(name, item.metadata[name]);
+      });
       return formData;
     }
 
-    function renderResults(data) {
-      const verdictClass = data.overall_verdict === 'APPROVED' ? 'approved' : 'review';
-      const verdictText = data.overall_verdict === 'APPROVED' ? 'APPROVED' : 'NEEDS REVIEW';
-      const verdictSubtext = data.overall_verdict === 'APPROVED'
-        ? 'All fields matched successfully.'
-        : 'One or more fields need review. See details below.';
+    function buildBatchPayload(items) {
+      const formData = new FormData();
+      items.forEach((item) => {
+        formData.append('images', item.image);
+      });
+      formData.append('metadata', JSON.stringify(items.map((item) => item.metadata)));
+      return formData;
+    }
 
-      const fieldsHtml = data.field_results.map((field) => {
-        const statusClass = field.status === 'PASS' ? 'pass' : 'fail';
-        const hasFailure = field.status === 'FAIL';
+    function normalizeVerificationResponse(payload) {
+      if (payload && Array.isArray(payload.items)) {
+        return {
+          items: payload.items,
+          summary: payload.summary || {
+            total: payload.items.length,
+            passed: payload.items.filter((item) => item.overall_verdict === 'APPROVED').length,
+            needs_review: payload.items.filter((item) => item.overall_verdict !== 'APPROVED').length,
+          },
+        };
+      }
+
+      return {
+        items: payload ? [payload] : [],
+        summary: payload ? {
+          total: 1,
+          passed: payload.overall_verdict === 'APPROVED' ? 1 : 0,
+          needs_review: payload.overall_verdict === 'APPROVED' ? 0 : 1,
+        } : { total: 0, passed: 0, needs_review: 0 },
+      };
+    }
+
+    function renderResults(data) {
+      const normalized = normalizeVerificationResponse(data);
+      const summaryHtml = normalized.summary.total > 1
+        ? `<div class="results-summary">Total: ${normalized.summary.total} - Passed: ${normalized.summary.passed} - Needs review: ${normalized.summary.needs_review}</div>`
+        : '';
+
+      const resultsHtml = normalized.items.map((item, index) => {
+        const verdictClass = item.overall_verdict === 'APPROVED' ? 'approved' : 'review';
+        const verdictText = item.overall_verdict === 'APPROVED' ? 'APPROVED' : 'NEEDS REVIEW';
+        const verdictSubtext = item.overall_verdict === 'APPROVED'
+          ? 'All fields matched successfully.'
+          : 'One or more fields need review. See details below.';
+        const labelText = normalized.items.length > 1 ? `Label ${index + 1}: ` : '';
+        const fieldsHtml = (item.field_results || []).map((fieldResult) => {
+          const statusClass = fieldResult.status === 'PASS' ? 'pass' : 'fail';
+          const hasFailure = fieldResult.status === 'FAIL';
+          return `
+            <section class="field-result ${statusClass}">
+              <div class="field-row">
+                <span class="field-name">${escapeHtml(formatFieldName(fieldResult.field))}</span>
+                <span class="field-badge ${statusClass}">${escapeHtml(fieldResult.status)}</span>
+              </div>
+              <div class="field-values">
+                <div>
+                  <strong>Expected:</strong>
+                  <div class="field-value-raw">${escapeHtml(fieldResult.expected)}</div>
+                </div>
+                <div>
+                  <strong>Found:</strong>
+                  <div class="field-value-raw ${hasFailure ? 'fail' : ''}">${escapeHtml(fieldResult.found)}</div>
+                </div>
+                <div class="field-reason">${escapeHtml(fieldResult.reason)}</div>
+              </div>
+            </section>
+          `;
+        }).join('');
+
         return `
-          <section class="field-result ${statusClass}">
-            <div class="field-row">
-              <span class="field-name">${field.field.replace(/_/g, ' ')}</span>
-              <span class="field-badge ${statusClass}">${field.status}</span>
+          <article class="result-item">
+            <div class="verdict">
+              <div class="verdict-heading ${verdictClass}">${labelText}${verdictText}</div>
+              <div class="verdict-subtext">${verdictSubtext}</div>
             </div>
-            <div class="field-values">
-              <div>
-                <strong>Expected:</strong>
-                <div class="field-value-raw">${escapeHtml(field.expected)}</div>
-              </div>
-              <div>
-                <strong>Found:</strong>
-                <div class="field-value-raw ${hasFailure ? 'fail' : ''}">${escapeHtml(field.found)}</div>
-              </div>
-              <div class="field-reason">${escapeHtml(field.reason)}</div>
-            </div>
-          </section>
+            ${fieldsHtml}
+          </article>
         `;
       }).join('');
 
-      resultsCard.innerHTML = `
-        <div class="verdict">
-          <div class="verdict-heading ${verdictClass}">${verdictText}</div>
-          <div class="verdict-subtext">${verdictSubtext}</div>
-        </div>
-        ${fieldsHtml}
-      `;
+      resultsCard.innerHTML = `${summaryHtml}${resultsHtml}`;
       resultsCard.style.display = 'block';
+    }
+
+    function formatFieldName(value) {
+      return String(value || '').replace(/_/g, ' ');
     }
 
     function escapeHtml(value) {
@@ -521,65 +875,39 @@
         .replace(/'/g, '&#039;');
     }
 
-    imagePicker.addEventListener('click', () => imageUpload.click());
-    imagePicker.addEventListener('keypress', (event) => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        imageUpload.click();
-      }
-    });
-
-    imagePicker.addEventListener('dragover', (event) => {
-      event.preventDefault();
-      imagePicker.style.borderColor = '#0f6fff';
-      imagePicker.style.background = '#edf3ff';
-    });
-
-    imagePicker.addEventListener('dragleave', () => {
-      imagePicker.style.borderColor = '#8b97af';
-      imagePicker.style.background = '#f4f6fb';
-    });
-
-    imagePicker.addEventListener('drop', (event) => {
-      event.preventDefault();
-      imagePicker.style.borderColor = '#8b97af';
-      imagePicker.style.background = '#f4f6fb';
-      const file = event.dataTransfer.files[0];
-      if (file) {
-        selectedFile = file;
-        imageUpload.files = event.dataTransfer.files;
-        updatePreview(file);
-      }
-    });
-
-    imageUpload.addEventListener('change', () => {
-      selectedFile = imageUpload.files[0] || null;
-      updatePreview(selectedFile);
-    });
+    addCardButton.addEventListener('click', addCard);
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       setError('');
       resultsCard.style.display = 'none';
+      resultsCard.innerHTML = '';
 
-      if (!selectedFile) {
-        setError('Please select an image before verifying.');
+      if (!form.reportValidity()) {
         return;
       }
 
-      const formData = getFormData();
+      const items = collectCards();
+      const validationError = validateCards(items);
+      if (validationError) {
+        setError(validationError);
+        return;
+      }
+
+      const isBatch = items.length > 1;
+      const endpoint = isBatch ? '/verify/batch' : '/verify';
+      const body = isBatch ? buildBatchPayload(items) : buildSinglePayload(items[0]);
       setLoading(true);
 
       try {
-        const response = await fetch('/verify', {
+        const response = await fetch(endpoint, {
           method: 'POST',
-          body: formData,
+          body,
         });
-
         const payload = await response.json().catch(() => null);
 
         if (!response.ok) {
-          const message = payload?.message || 'Unable to verify label. Please try again.';
+          const message = payload?.message || payload?.detail || 'Unable to verify label. Please try again.';
           setError(message);
           return;
         }
@@ -591,6 +919,8 @@
         setLoading(false);
       }
     });
+
+    addCard();
   </script>
 </body>
 </html>
