@@ -3,18 +3,36 @@ from __future__ import annotations
 
 import base64
 import io
-import json
 import logging
 import os
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Any, Optional
 
 from PIL import Image
+from pydantic import ValidationError
 
-from .models import ExtractedLabel
+from openai import OpenAI
+
 from .extraction_prompt import EXTRACTION_JSON_SCHEMA, SYSTEM_INSTRUCTIONS, build_user_prompt
+from .models import ExtractedLabel
 
 logger = logging.getLogger(__name__)
+
+
+class VisionTimeoutError(RuntimeError):
+    """Vision provider did not return a result before the timeout."""
+
+
+class VisionInvalidResponseError(RuntimeError):
+    """Vision provider returned malformed or schema-invalid output."""
+
+
+class VisionAuthError(RuntimeError):
+    """Vision provider rejected authentication or authorization."""
+
+
+class VisionModelValidationError(RuntimeError):
+    """Configured vision model is unavailable or cannot be validated."""
 
 
 class VisionService(ABC):
@@ -64,21 +82,29 @@ class OpenAIVisionService(VisionService):
     Note: network calls are not used in tests.
     """
 
-    VISION_MODEL = os.environ.get("VISION_MODEL", "gpt-4o-mini-vision")
+    VISION_MODEL = os.environ.get("VISION_MODEL", "gpt-4.1-nano")
     MAX_IMAGE_DIMENSION = int(os.environ.get("MAX_IMAGE_DIMENSION", 900))
     JPEG_QUALITY = int(os.environ.get("JPEG_QUALITY", 80))
     MODEL_TIMEOUT_SECONDS = int(os.environ.get("MODEL_TIMEOUT_SECONDS", 4))
 
-    def __init__(self, api_key: Optional[str] = None):
-        try:
-            import openai
-
-            self.openai = openai
-        except Exception:  # pragma: no cover - environment dependent
-            self.openai = None
+    def __init__(self, api_key: Optional[str] = None, client: Any | None = None):
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
-        if self.openai and self.api_key:
-            self.openai.api_key = self.api_key
+        self.client = client
+        if self.client is None and self.api_key:
+            self.client = OpenAI(api_key=self.api_key, timeout=self.MODEL_TIMEOUT_SECONDS)
+
+    def validate_model_available(self) -> None:
+        if not self.client:
+            raise VisionModelValidationError(
+                f"Vision model '{self.VISION_MODEL}' could not be validated."
+            )
+
+        try:
+            self.client.models.retrieve(self.VISION_MODEL)
+        except Exception:
+            raise VisionModelValidationError(
+                f"Vision model '{self.VISION_MODEL}' is unavailable or could not be validated."
+            ) from None
 
     def _preprocess(self, image_bytes: bytes) -> bytes:
         # Downscale to a reasonable max dimension and re-encode as JPEG to reduce payload
@@ -98,79 +124,96 @@ class OpenAIVisionService(VisionService):
             logger.warning("Image preprocessing failed: %s", e)
             return image_bytes
 
+    def _has_refusal(self, response: Any) -> bool:
+        for item in getattr(response, "output", []) or []:
+            for content in getattr(item, "content", []) or []:
+                if getattr(content, "type", None) == "refusal" or getattr(content, "refusal", None):
+                    return True
+        return False
+
+    def _validate_parsed_response(self, response: Any) -> ExtractedLabel:
+        status = getattr(response, "status", None)
+        if status == "incomplete" or getattr(response, "incomplete_details", None):
+            raise VisionInvalidResponseError("Vision model response was incomplete.")
+
+        if status is not None and status != "completed":
+            raise VisionInvalidResponseError("Vision model did not complete extraction.")
+
+        if getattr(response, "error", None):
+            raise VisionInvalidResponseError("Vision model returned a provider failure response.")
+
+        if self._has_refusal(response):
+            raise VisionInvalidResponseError("Vision model refused to extract label data.")
+
+        parsed = getattr(response, "output_parsed", None)
+        if parsed is None:
+            raise VisionInvalidResponseError("Vision model returned no parsed structured output.")
+
+        if isinstance(parsed, dict):
+            try:
+                parsed = ExtractedLabel.model_validate(parsed)
+            except ValidationError as exc:
+                raise VisionInvalidResponseError("Vision model output did not match the expected schema.") from exc
+
+        if not isinstance(parsed, ExtractedLabel):
+            raise VisionInvalidResponseError("Vision model output did not match the expected schema.")
+
+        required_fields = EXTRACTION_JSON_SCHEMA.get("required", [])
+        missing_fields = [field for field in required_fields if field not in parsed.model_fields_set]
+        if missing_fields:
+            raise VisionInvalidResponseError("Vision model output was missing required fields.")
+
+        return parsed
+
+    def _map_provider_exception(self, exc: Exception) -> Exception:
+        exc_name = exc.__class__.__name__.lower()
+        status_code = getattr(exc, "status_code", None)
+
+        if isinstance(exc, TimeoutError) or "timeout" in exc_name:
+            return VisionTimeoutError("Vision provider timed out.")
+
+        if status_code in (401, 403) or any(token in exc_name for token in ("auth", "permission", "forbidden", "unauthorized")):
+            return VisionAuthError("Vision provider authentication failed.")
+
+        return exc
+
     def extract(self, image_bytes: bytes) -> ExtractedLabel:
         # preprocess image
         processed = self._preprocess(image_bytes)
 
-        if not self.openai:
-            logger.warning("OpenAI SDK not available; returning empty ExtractedLabel")
-            return ExtractedLabel()
+        if not self.client:
+            raise VisionAuthError("Vision provider authentication failed.")
 
         b64 = base64.b64encode(processed).decode("ascii")
-        user_prompt = build_user_prompt(b64)
+        user_prompt = build_user_prompt("")
+        image_url = f"data:image/jpeg;base64,{b64}"
 
         try:
-            # Use the Responses API with structured output via json_schema
-            response = self.openai.responses.create(
+            response = self.client.responses.parse(
                 model=self.VISION_MODEL,
                 input=[
-                    {"role": "system", "content": SYSTEM_INSTRUCTIONS},
-                    {"role": "user", "content": user_prompt},
+                    {
+                        "role": "system",
+                        "content": [{"type": "input_text", "text": SYSTEM_INSTRUCTIONS}],
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "input_text", "text": user_prompt},
+                            {"type": "input_image", "image_url": image_url, "detail": "auto"},
+                        ],
+                    },
                 ],
-                # Structured output via json_schema (SDK-specific)
-                json_schema=EXTRACTION_JSON_SCHEMA,
-                # Timeout control
-                timeout=self.MODEL_TIMEOUT_SECONDS,
+                text_format=ExtractedLabel,
             )
 
-            # SDK returns structured output under 'output' or 'json_schema' depending on version.
-            parsed = None
-            # Try common locations defensively
-            if hasattr(response, "output"):
-                for item in response.output:
-                    if getattr(item, "type", None) == "json_schema":
-                        parsed = item.data
-                        break
-            if parsed is None and hasattr(response, "json"):
-                parsed = response.json()
-            if parsed is None:
-                # Fallback: try to extract content and parse
-                text = getattr(response, "text", None) or str(response)
-                try:
-                    parsed = json.loads(text)
-                except Exception:
-                    logger.exception("Failed to parse model response as JSON")
-                    return ExtractedLabel()
-
-            # parsed should be a dict matching schema
-            if isinstance(parsed, dict):
-                # Convert fields and defensively map types
-                def get_str(k):
-                    v = parsed.get(k)
-                    return v if isinstance(v, str) else None
-
-                def get_num(k):
-                    v = parsed.get(k)
-                    if isinstance(v, (int, float)):
-                        return float(v)
-                    try:
-                        return float(v)
-                    except Exception:
-                        return None
-
-                return ExtractedLabel(
-                    brand_name=get_str("brand_name"),
-                    class_type=get_str("class_type"),
-                    producer=get_str("producer"),
-                    country_of_origin=get_str("country_of_origin"),
-                    abv=get_num("abv"),
-                    net_contents=get_str("net_contents"),
-                    government_warning=get_str("government_warning"),
-                )
-
-            logger.warning("Model returned unexpected structured payload: %r", parsed)
-            return ExtractedLabel()
-
+            return self._validate_parsed_response(response)
+        except VisionInvalidResponseError:
+            raise
+        except ValidationError as exc:
+            raise VisionInvalidResponseError("Vision model output did not match the expected schema.") from exc
         except Exception as e:
-            logger.exception("Vision model call failed: %s", e)
-            return ExtractedLabel()
+            mapped = self._map_provider_exception(e)
+            if mapped is e:
+                raise
+            raise mapped from e

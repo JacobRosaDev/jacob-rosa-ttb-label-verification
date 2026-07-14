@@ -29,14 +29,17 @@ class ExtractedLabel(BaseModel):
     abv: Optional[float] = Field(default=None, ge=0, le=100)
     net_contents: Optional[str] = None
     government_warning: Optional[str] = None
+    raw_text: Optional[str] = None
+    extraction_confidence: Optional[float] = None
 
 
 class FieldResult(BaseModel):
     """Result of comparing one field."""
-    field_name: str
+    field: str
+    match_type: Literal["fuzzy", "synonym", "numeric", "unit", "exact"]
+    expected: str
+    found: Optional[str]
     status: Literal["PASS", "FAIL"]
-    extracted_value: str
-    submitted_value: str
     reason: str
 
 
@@ -45,22 +48,15 @@ class VerificationResult(BaseModel):
     overall_verdict: Literal["APPROVED", "NEEDS_REVIEW"]
     field_results: list[FieldResult]
     timestamp: datetime
+    latency_ms: float = Field(..., ge=0)
 
 
-class BatchItemResult(BaseModel):
-    """Result for one item in a batch request."""
-    index: int
-    filename: str
-    verification: VerificationResult | None = None
-    match: Literal["passed", "needs-review", "error"]
-    confidence: float | None = None
-    errors: Optional[list[str]] = None
-    duration_ms: float
-
-
-class BatchResponse(BaseModel):
-    total: int
+class BatchSummary(BaseModel):
     passed: int
     needs_review: int
-    errors: int
-    results: list[BatchItemResult]
+    total: int
+
+
+class BatchResult(BaseModel):
+    items: list[VerificationResult]
+    summary: BatchSummary

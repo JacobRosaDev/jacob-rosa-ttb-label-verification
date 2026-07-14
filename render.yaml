@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: ttb-label-verification
+    runtime: python
+    buildCommand: cd backend && pip install --upgrade pip && pip install uv && uv sync --frozen
+    startCommand: cd backend && uv run --frozen python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: VISION_MODEL
+        value: gpt-4.1-nano
+      - key: ITEM_TIMEOUT_MS
+        value: "8000"

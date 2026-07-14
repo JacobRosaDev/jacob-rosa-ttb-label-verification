@@ -1,23 +1,133 @@
 import io
+import logging
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app, get_vision_service
-from app.vision_service import MockVisionService, VisionService
+from app.models import ExtractedLabel
+from app.vision_service import (
+    MockVisionService,
+    OpenAIVisionService,
+    VisionAuthError,
+    VisionInvalidResponseError,
+    VisionModelValidationError,
+    VisionService,
+)
 import json
 
 
 @pytest.fixture(autouse=True)
 def mock_vision_service_override():
+    get_vision_service.cache_clear()
     app.dependency_overrides[get_vision_service] = lambda: MockVisionService(scenario="clear")
     yield
     app.dependency_overrides.clear()
+    get_vision_service.cache_clear()
 
 
 @pytest.fixture
 def client():
     return TestClient(app, raise_server_exceptions=False)
+
+
+class FakeModelResource:
+    def __init__(self, exc: Exception | None = None):
+        self.exc = exc
+        self.calls = []
+
+    def retrieve(self, model: str):
+        self.calls.append(model)
+        if self.exc is not None:
+            raise self.exc
+        return {"id": model}
+
+
+class FakeOpenAIClient:
+    def __init__(self, exc: Exception | None = None):
+        self.models = FakeModelResource(exc=exc)
+
+
+class StartupTestOpenAIVisionService(OpenAIVisionService):
+    VISION_MODEL = "startup-test-model"
+
+    def __init__(self, client: FakeOpenAIClient):
+        self.api_key = "not-used"
+        self.client = client
+
+
+class TrackingMockVisionService(MockVisionService):
+    def __init__(self):
+        super().__init__(scenario="clear")
+        self.validate_model_available_called = False
+
+    def validate_model_available(self):
+        self.validate_model_available_called = True
+        raise AssertionError("mock service validation should be skipped")
+
+
+def test_startup_validates_configured_openai_model_successfully(caplog):
+    fake_client = FakeOpenAIClient()
+    service = StartupTestOpenAIVisionService(fake_client)
+    app.dependency_overrides[get_vision_service] = lambda: service
+    caplog.set_level(logging.INFO, logger="app.main")
+
+    with TestClient(app, raise_server_exceptions=False) as test_client:
+        response = test_client.get("/health")
+
+    assert response.status_code == 200
+    assert fake_client.models.calls == ["startup-test-model"]
+    assert "startup-test-model" in caplog.text
+
+
+def test_startup_validation_failure_stops_application_startup_with_sanitized_error():
+    fake_client = FakeOpenAIClient(
+        exc=RuntimeError("OPENAI_API_KEY=sk-secret provider response body stacktrace")
+    )
+    service = StartupTestOpenAIVisionService(fake_client)
+    app.dependency_overrides[get_vision_service] = lambda: service
+
+    with pytest.raises(VisionModelValidationError) as exc_info:
+        with TestClient(app, raise_server_exceptions=False):
+            pass
+
+    message = str(exc_info.value)
+    assert "startup-test-model" in message
+    assert "sk-secret" not in message
+    assert "OPENAI_API_KEY" not in message
+    assert "provider response body" not in message
+    assert exc_info.value.__suppress_context__ is True
+
+
+def test_startup_skips_model_validation_for_mock_vision_service():
+    service = TrackingMockVisionService()
+    app.dependency_overrides[get_vision_service] = lambda: service
+
+    with TestClient(app, raise_server_exceptions=False) as test_client:
+        response = test_client.get("/health")
+
+    assert response.status_code == 200
+    assert service.validate_model_available_called is False
+
+
+def test_startup_validation_runs_once_despite_multiple_health_requests():
+    fake_client = FakeOpenAIClient()
+    service = StartupTestOpenAIVisionService(fake_client)
+    app.dependency_overrides[get_vision_service] = lambda: service
+
+    with TestClient(app, raise_server_exceptions=False) as test_client:
+        assert test_client.get("/health").status_code == 200
+        assert test_client.get("/health").status_code == 200
+        assert test_client.get("/health").status_code == 200
+
+    assert fake_client.models.calls == ["startup-test-model"]
+
+
+def test_root_serves_unified_frontend(client):
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "TTB Label Verification" in response.text
 
 
 def _base_form_data():
@@ -34,6 +144,27 @@ def _base_form_data():
     }
 
 
+@pytest.mark.parametrize(
+    ("filename", "content_type"),
+    [
+        ("label.jpeg", "image/jpeg"),
+        ("label.jpg", "image/jpg"),
+        ("label.png", "image/png"),
+        ("label.webp", "image/webp"),
+    ],
+)
+def test_verify_accepts_allowed_image_types(client, filename, content_type):
+    response = client.post(
+        "/verify",
+        files={"image": (filename, io.BytesIO(b"IMAGEDATA"), content_type)},
+        data=_base_form_data(),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["overall_verdict"] == "APPROVED"
+
+
 def test_verify_returns_approved_with_clear_mock(client):
     file_bytes = b"PNGDATA"
     response = client.post(
@@ -46,8 +177,30 @@ def test_verify_returns_approved_with_clear_mock(client):
     payload = response.json()
     assert payload["overall_verdict"] == "APPROVED"
     assert isinstance(payload["field_results"], list)
-    assert payload["field_results"][0]["field_name"] == "brand_name"
+    assert payload["field_results"][0]["field"] == "brand_name"
     assert payload["latency_ms"] >= 0
+
+
+def test_get_vision_service_returns_cached_instance(monkeypatch):
+    instances = []
+
+    class FakeOpenAIVisionService(VisionService):
+        def __init__(self):
+            instances.append(self)
+
+        def extract(self, image_bytes: bytes):
+            return ExtractedLabel()
+
+    import app.main as main_module
+
+    get_vision_service.cache_clear()
+    monkeypatch.setattr(main_module, "OpenAIVisionService", FakeOpenAIVisionService)
+
+    first = get_vision_service()
+    second = get_vision_service()
+
+    assert first is second
+    assert instances == [first]
 
 
 def test_verify_returns_needs_review_for_partial_extraction(client):
@@ -78,11 +231,20 @@ def test_verify_rejects_missing_image(client):
     assert "Image file is required" in payload["message"]
 
 
-def test_verify_rejects_invalid_file_type(client):
+@pytest.mark.parametrize(
+    ("filename", "content_type"),
+    [
+        ("label.txt", "text/plain"),
+        ("label.pdf", "application/pdf"),
+        ("label.gif", "image/gif"),
+        ("label.heic", "image/heic"),
+    ],
+)
+def test_verify_rejects_invalid_file_type(client, filename, content_type):
     file_bytes = b"NOTANIMAGE"
     response = client.post(
         "/verify",
-        files={"image": ("label.txt", io.BytesIO(file_bytes), "text/plain")},
+        files={"image": (filename, io.BytesIO(file_bytes), content_type)},
         data=_base_form_data(),
     )
 
@@ -154,7 +316,31 @@ def test_verify_handles_vision_service_failure_gracefully(client):
     assert "unable to extract label text" in payload["message"].lower()
 
 
-def _batch_meta_items(n):
+class AuthFailingVisionService(VisionService):
+    def extract(self, image_bytes: bytes):
+        raise VisionAuthError("OPENAI_API_KEY=sk-secret provider body stacktrace")
+
+
+def test_verify_typed_vision_error_is_structured_and_sanitized(client):
+    app.dependency_overrides[get_vision_service] = lambda: AuthFailingVisionService()
+    response = client.post(
+        "/verify",
+        files={"image": ("label.png", io.BytesIO(b"PNGDATA"), "image/png")},
+        data=_base_form_data(),
+    )
+
+    assert response.status_code == 502
+    payload = response.json()
+    assert payload["error"] == "Verification failed"
+    assert "temporarily unavailable" in payload["message"].lower()
+    body = response.text.lower()
+    assert "sk-secret" not in body
+    assert "openai_api_key" not in body
+    assert "provider body" not in body
+    assert "stacktrace" not in body
+
+
+def _batch_meta_items(n, brand_names=None):
     base = {
         "brand_name": "Ketel One",
         "class_type": "Vodka",
@@ -166,11 +352,84 @@ def _batch_meta_items(n):
             "GOVERNMENT WARNING: (1) According to the Surgeon General, women should not drink..."
         ),
     }
-    return [base.copy() for _ in range(n)]
+    items = []
+    for i in range(n):
+        item = base.copy()
+        if brand_names is not None:
+            item["brand_name"] = brand_names[i]
+        items.append(item)
+    return items
 
 
-def test_verify_batch_all_pass(client):
-    # three clear images should all pass with the default MockVisionService
+def _assert_verification_result_contract(item):
+    assert set(item.keys()) == {"overall_verdict", "field_results", "timestamp", "latency_ms"}
+    assert item["overall_verdict"] in {"APPROVED", "NEEDS_REVIEW"}
+    assert isinstance(item["field_results"], list)
+    assert item["latency_ms"] >= 0
+    for field in item["field_results"]:
+        assert set(field.keys()) == {"field", "match_type", "expected", "found", "status", "reason"}
+
+
+def _collect_keys(value):
+    if isinstance(value, dict):
+        keys = set(value.keys())
+        for child in value.values():
+            keys.update(_collect_keys(child))
+        return keys
+    if isinstance(value, list):
+        keys = set()
+        for child in value:
+            keys.update(_collect_keys(child))
+        return keys
+    return set()
+
+
+@pytest.mark.parametrize(
+    ("filename", "content_type"),
+    [
+        ("label.jpeg", "image/jpeg"),
+        ("label.jpg", "image/jpg"),
+        ("label.png", "image/png"),
+        ("label.webp", "image/webp"),
+    ],
+)
+def test_verify_batch_accepts_allowed_image_types(client, filename, content_type):
+    files = [("images", (filename, io.BytesIO(b"IMAGEDATA"), content_type))]
+    meta = json.dumps(_batch_meta_items(1))
+    response = client.post("/verify/batch", files=files, data={"metadata": meta})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["summary"] == {"passed": 1, "needs_review": 0, "total": 1}
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["overall_verdict"] == "APPROVED"
+
+
+@pytest.mark.parametrize(
+    ("filename", "content_type"),
+    [
+        ("label.txt", "text/plain"),
+        ("label.pdf", "application/pdf"),
+        ("label.gif", "image/gif"),
+        ("label.heic", "image/heic"),
+    ],
+)
+def test_verify_batch_rejects_invalid_file_type_as_item_result(client, filename, content_type):
+    files = [("images", (filename, io.BytesIO(b"NOTANIMAGE"), content_type))]
+    meta = json.dumps(_batch_meta_items(1))
+    response = client.post("/verify/batch", files=files, data={"metadata": meta})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["summary"] == {"passed": 0, "needs_review": 1, "total": 1}
+    assert len(payload["items"]) == 1
+    item = payload["items"][0]
+    _assert_verification_result_contract(item)
+    assert item["overall_verdict"] == "NEEDS_REVIEW"
+    assert "Unsupported file type" in item["field_results"][0]["reason"]
+
+
+def test_verify_batch_response_contract_all_pass(client):
     files = [
         ("images", (f"label{i}.png", io.BytesIO(b"PNGDATA"), "image/png"))
         for i in range(3)
@@ -180,40 +439,131 @@ def test_verify_batch_all_pass(client):
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["total"] == 3
-    assert payload["passed"] == 3
-    assert payload["needs_review"] == 0
-    assert payload["errors"] == 0
-    assert len(payload["results"]) == 3
+    assert set(payload.keys()) == {"items", "summary"}
+    assert set(payload["summary"].keys()) == {"passed", "needs_review", "total"}
+    assert payload["summary"] == {"passed": 3, "needs_review": 0, "total": 3}
+    assert len(payload["items"]) == 3
+    for item in payload["items"]:
+        _assert_verification_result_contract(item)
 
 
-class PerItemVisionService(VisionService):
+class MixedVisionService(VisionService):
     def extract(self, image_bytes: bytes):
-        # simulate failure for specific payload
-        if image_bytes == b"BAD":
-            raise RuntimeError("bad image")
+        if image_bytes == b"PARTIAL":
+            return MockVisionService(scenario="partial").extract(image_bytes)
         return MockVisionService(scenario="clear").extract(image_bytes)
 
 
-def test_verify_batch_one_error_item(client):
-    # Override vision service to fail on one specific image
-    app.dependency_overrides[get_vision_service] = lambda: PerItemVisionService()
+def test_verify_batch_mixed_approved_and_needs_review_summary_counts(client):
+    app.dependency_overrides[get_vision_service] = lambda: MixedVisionService()
     files = [
         ("images", ("label0.png", io.BytesIO(b"PNGDATA"), "image/png")),
-        ("images", ("label1.png", io.BytesIO(b"BAD"), "image/png")),
-        ("images", ("label2.png", io.BytesIO(b"PNGDATA"), "image/png")),
+        ("images", ("label1.png", io.BytesIO(b"PARTIAL"), "image/png")),
     ]
-    meta = json.dumps(_batch_meta_items(3))
+    meta = json.dumps(_batch_meta_items(2))
     response = client.post("/verify/batch", files=files, data={"metadata": meta})
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["total"] == 3
-    assert payload["errors"] == 1
-    assert payload["passed"] == 2
-    assert payload["needs_review"] in (0, 1)
-    # ensure the middle item has an error reported
-    assert any(r.get("filename") == "label1.png" and r.get("match") == "error" for r in payload["results"])
+    assert [item["overall_verdict"] for item in payload["items"]] == ["APPROVED", "NEEDS_REVIEW"]
+    assert payload["summary"] == {"passed": 1, "needs_review": 1, "total": 2}
+    assert all("latency_ms" in item for item in payload["items"])
+
+
+class UnreadableVisionService(VisionService):
+    def extract(self, image_bytes: bytes):
+        raise VisionInvalidResponseError("unreadable")
+
+
+def test_verify_batch_unreadable_image_becomes_needs_review_item(client):
+    app.dependency_overrides[get_vision_service] = lambda: UnreadableVisionService()
+    files = [("images", ("label.png", io.BytesIO(b"BADIMAGE"), "image/png"))]
+    meta = json.dumps(_batch_meta_items(1))
+    response = client.post("/verify/batch", files=files, data={"metadata": meta})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["summary"] == {"passed": 0, "needs_review": 1, "total": 1}
+    item = payload["items"][0]
+    _assert_verification_result_contract(item)
+    assert item["overall_verdict"] == "NEEDS_REVIEW"
+    raw_text_failure = item["field_results"][0]
+    assert raw_text_failure["field"] == "raw_text"
+    assert raw_text_failure["found"] is None
+    assert "photo could not be read" in raw_text_failure["reason"].lower()
+
+
+class OrderedVisionService(VisionService):
+    def extract(self, image_bytes: bytes):
+        brand_name = image_bytes.decode("ascii")
+        return ExtractedLabel(
+            brand_name=brand_name,
+            class_type="Vodka",
+            producer="Ketel Distillery",
+            country_of_origin="Netherlands",
+            abv=40.0,
+            net_contents="750 mL",
+            government_warning=(
+                "GOVERNMENT WARNING: (1) According to the Surgeon General, women should not drink..."
+            ),
+        )
+
+
+def test_verify_batch_preserves_original_item_order(client):
+    app.dependency_overrides[get_vision_service] = lambda: OrderedVisionService()
+    brand_names = ["First Label", "Second Label", "Third Label"]
+    files = [
+        ("images", (f"label{i}.png", io.BytesIO(name.encode("ascii")), "image/png"))
+        for i, name in enumerate(brand_names)
+    ]
+    meta = json.dumps(_batch_meta_items(3, brand_names=brand_names))
+    response = client.post("/verify/batch", files=files, data={"metadata": meta})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [
+        item["field_results"][0]["expected"]
+        for item in payload["items"]
+    ] == brand_names
+
+
+def test_verify_single_response_contract_and_no_old_names(client):
+    response = client.post(
+        "/verify",
+        files={"image": ("label.png", io.BytesIO(b"PNGDATA"), "image/png")},
+        data=_base_form_data(),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    _assert_verification_result_contract(payload)
+    forbidden = {"field_name", "extracted_value", "submitted_value", "VerificationResponse", "BatchResponse"}
+    assert _collect_keys(payload).isdisjoint(forbidden)
+
+
+def test_verify_batch_serialized_response_has_no_old_names(client):
+    files = [("images", ("label.png", io.BytesIO(b"PNGDATA"), "image/png"))]
+    meta = json.dumps(_batch_meta_items(1))
+    response = client.post("/verify/batch", files=files, data={"metadata": meta})
+
+    assert response.status_code == 200
+    payload = response.json()
+    forbidden = {
+        "field_name",
+        "extracted_value",
+        "submitted_value",
+        "VerificationResponse",
+        "BatchResponse",
+        "errors",
+        "results",
+        "total",
+        "passed",
+        "needs_review",
+    }
+    assert set(payload.keys()) == {"items", "summary"}
+    assert _collect_keys(payload).isdisjoint(forbidden - {"total", "passed", "needs_review"})
+    assert "results" not in payload
+    assert "errors" not in payload
 
 
 def test_verify_batch_exceeds_max_size(client):
