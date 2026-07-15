@@ -8,7 +8,7 @@ A stateless FastAPI service with static HTML pages for checking whether distille
 - **Backend base URL:** https://ttb-label-verification-lwrd.onrender.com
 - **Health URL:** https://ttb-label-verification-lwrd.onrender.com/health
 - **Last manually verified:** July 12, 2026
-- **Production vision model:** `gpt-4.1-nano`
+- **Production vision model:** `gpt-5.4-nano`
 
 Verified live checks on July 12, 2026:
 
@@ -61,7 +61,7 @@ Browser or curl
 - OpenAI Python SDK
 - `python-multipart`
 - Static HTML/CSS/JavaScript frontend
-- Vision model: `gpt-4.1-nano`
+- Vision model: `gpt-5.4-nano`
 - Render deployment config in `render.yaml`
 
 ## Environment Variables
@@ -69,7 +69,7 @@ Browser or curl
 | Name | Required | Code default | Purpose |
 | --- | --- | --- | --- |
 | `OPENAI_API_KEY` | Yes | No default | API key used by `OpenAIVisionService`. |
-| `VISION_MODEL` | No | `gpt-4.1-nano` | OpenAI vision-capable model used for extraction. |
+| `VISION_MODEL` | No | `gpt-5.4-nano` | OpenAI vision-capable model used for extraction. |
 | `MAX_IMAGE_DIMENSION` | No | `900` | Longest image side after preprocessing. |
 | `JPEG_QUALITY` | No | `80` | JPEG quality used after preprocessing. |
 | `MODEL_TIMEOUT_SECONDS` | No | `4` | OpenAI client timeout. |
@@ -288,18 +288,20 @@ Batch item-level problems can return HTTP 200 with an item marked `NEEDS_REVIEW`
 Verified live benchmark results for the deployed service:
 
 - **Script:** `backend/scripts/benchmark_live.py`
-- **Endpoint:** `https://ttb-label-verification-lwrd.onrender.com/verify`
-- **Measurement time:** `2026-07-13T00:08:37.605457+00:00`
+- **Model:** `gpt-5.4-nano`
+- **Endpoint:** `/verify`
+- **Measurement date:** July 14, 2026
 - **Benchmark client:** local Windows laptop using PowerShell
 - **Requested runs:** 20
 - **Successful runs:** 20
 - **Failed runs:** 0
 - **Timed-out runs:** 0
-- **First-request latency:** 3,890.6 ms
+- **First-request latency:** 4,200.1 ms
 - **Percentile method:** nearest-rank over successful requests
-- **p50 latency:** 3,759.9 ms
-- **p95 latency:** 4,638.6 ms
-- **Successful requests at or below 5 seconds:** 19 of 20
+- **p50 latency:** 3,460.8 ms
+- **p95 latency:** 4,200.1 ms
+- **Successful requests at or below 5 seconds:** 19/20
+- **All successful requests met the 5-second target:** No
 - **Target:** single-label result under 5,000 ms
 
 The p50 and p95 were below 5 seconds, but not every request met the target. The first-request latency is a first-request measurement only; it does not prove a cold start.
@@ -370,7 +372,7 @@ The smoke test is a single-request deployment gate and fails when that request r
 - build command: `cd backend && pip install --upgrade pip && pip install uv && uv sync --frozen`
 - start command: `cd backend && uv run --frozen python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 - health check path: `/health`
-- environment variables: `OPENAI_API_KEY` and `VISION_MODEL=gpt-4.1-nano`
+- environment variables: `OPENAI_API_KEY` and `VISION_MODEL=gpt-5.4-nano`
 
 ## Assumptions
 
@@ -415,5 +417,5 @@ The smoke test is a single-request deployment gate and fails when that request r
 - Example of human correction: in this documentation pass, the human corrected the stale AI assumption that the benchmark used a warm-up or hardcoded metadata and required the verified benchmark results instead.
 - Local tests are run before commits when code or contract-sensitive documentation changes.
 - Live smoke checks and benchmarking are run by the human against the deployed service with a real matching label image and metadata file; recorded live facts are preserved rather than invented.
-- The developer made a reviewed decision to align the application default, Render config, and production deployment on `gpt-4.1-nano`.
+- The developer made a reviewed decision to align the application default, Render config, and production deployment on `gpt-5.4-nano`.
 - Scope stays limited to the current approved phase.
