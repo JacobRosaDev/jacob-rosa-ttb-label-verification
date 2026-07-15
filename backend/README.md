@@ -29,7 +29,7 @@ Open `http://127.0.0.1:8000/` for single-label or batch verification, or `http:/
 ## Backend Variables
 
 - `OPENAI_API_KEY`: required for real extraction; no code default.
-- `VISION_MODEL`: defaults to `gpt-4.1-nano`.
+- `VISION_MODEL`: defaults to `gpt-5.4-nano`.
 - `MAX_IMAGE_DIMENSION`: defaults to `900`.
 - `JPEG_QUALITY`: defaults to `80`.
 - `MODEL_TIMEOUT_SECONDS`: defaults to `4`.

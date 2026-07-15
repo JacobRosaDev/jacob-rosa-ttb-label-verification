@@ -62,8 +62,8 @@ def _refusal_response():
     )
 
 
-def test_openai_default_model_is_gpt_4_1_nano():
-    assert OpenAIVisionService.VISION_MODEL == "gpt-4.1-nano"
+def test_openai_default_model_is_gpt_5_4_nano():
+    assert OpenAIVisionService.VISION_MODEL == "gpt-5.4-nano"
 
 
 def test_openai_service_instantiates_modern_client(monkeypatch):
@@ -150,7 +150,7 @@ def test_openai_request_contains_image_and_structured_output_configuration():
     svc.extract(b"not-really-an-image")
 
     call = svc.client.responses.calls[0]
-    assert call["model"] == "gpt-4.1-nano"
+    assert call["model"] == "gpt-5.4-nano"
     assert call["text_format"] is ExtractedLabel
     assert call["input"][0]["role"] == "system"
     assert call["input"][0]["content"][0]["text"]

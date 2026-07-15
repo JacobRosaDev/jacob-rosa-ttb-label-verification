@@ -9,6 +9,6 @@ services:
       - key: OPENAI_API_KEY
         sync: false
       - key: VISION_MODEL
-        value: gpt-4.1-nano
+        value: gpt-5.4-nano
       - key: ITEM_TIMEOUT_MS
         value: "8000"
